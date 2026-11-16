@@ -1,0 +1,468 @@
+/*
+This file holds the game physics and rules: players, ball, hoops, scoring, random rounds, and the computer player.
+Edit this file when gameplay changes (jump power, win score, new courts, balls, or hoops).
+Do not copy this file. Add a new court, ball, player type, or hoop as one more entry in the lists below.
+*/
+// Units: field pixels (290 x 190), Y axis points down, angles in degrees (clockwise).
+// Inside planck everything is in meters: 1 px = 0.02 m.
+import * as pl from "planck";
+
+  var Vec2 = pl.Vec2;
+  var S = 0.02;                   // meters per pixel
+  var DT = 1 / 60;
+  var FIELD_W = 290, FIELD_H = 190, GROUND = 142, CENTER = 145;
+  var WALL_L = 24, WALL_R = 266;
+  var G = 200;                    // gravity: 4 m/s² = 200 px/s²
+  var WIN_SCORE = 5;
+
+  // control constants
+  var ANGULAR_FORCE = 60, ANGULAR_SUB = 8, DIVIDE_SMOOTH = 1.1, WOOBLE = 200;
+  var LAND_MIN = 100, LAND_MAX = 150, JUMP_LEAN = 5;
+  var ARM_SPEED = 10, ARM_MAX = 180, ARM_DIV = 160;
+  var MORE_JUMP_RATE = 130, MORE_JUMP_MAX = 10;
+  var JUMP_V0 = 130, JUMP_THRUST = 0;          // px/s: jump speed along the body
+  var THROW_C = 50;
+
+  // ---------- random round options ----------
+  var PLACES = {
+    street: { name: 'Street',   friction: 1.0 },
+    night:  { name: 'Night',    friction: 1.0 },
+    beach:  { name: 'Beach',    friction: 0.8 },
+    snow:   { name: 'Snow',     friction: 0.04 },
+    indoor: { name: 'Gym', friction: 1.0 }
+  };
+  var BALLS = {
+    normal: { name: 'Ball',         r: 5,   density: 0.1,  restitution: 0.7,  damping: 0.3,  friction: 1 },
+    heavy:  { name: 'Heavy ball',   r: 5.5, density: 3.0,  restitution: 0.25, damping: 0.15, friction: 1 },
+    beach:  { name: 'Beach ball',   r: 6.5, density: 0.03, restitution: 0.85, damping: 0.55, friction: 1 },
+    small:  { name: 'Small ball', r: 4,  density: 0.1,  restitution: 0.8,  damping: 0.3,  friction: 1 }
+  };
+  var CHARS = {
+    normal: { name: 'Normal',    h: 33, arm: 17 },
+    tall:   { name: 'Tall',      h: 44, arm: 19 },
+    short:  { name: 'Short', h: 24, arm: 14 },
+    longarm:{ name: 'Long arms', h: 33, arm: 26 }
+  };
+  var GOALS = {
+    normal: { name: 'Hoop',          rimY: 78, open: 14 },
+    wide:   { name: 'Wide hoop', rimY: 78, open: 22 },
+    low:    { name: 'Low hoop', rimY: 94, open: 14 },
+    high:   { name: 'High hoop', rimY: 64, open: 15 }
+  };
+
+  function weighted(obj, weights) {
+    var keys = Object.keys(obj), tot = 0, i;
+    for (i = 0; i < keys.length; i++) tot += (weights && weights[keys[i]]) || 1;
+    var r = Math.random() * tot;
+    for (i = 0; i < keys.length; i++) { r -= (weights && weights[keys[i]]) || 1; if (r <= 0) return keys[i]; }
+    return keys[0];
+  }
+  function randomConfig(first) {
+    if (first) return { place: 'street', ball: 'normal', chars: 'normal', goal: 'normal', seed: Math.floor(Math.random() * 1e9) };
+    return {
+      place: weighted(PLACES, { street: 2 }),
+      ball: weighted(BALLS, { normal: 3 }),
+      chars: weighted(CHARS, { normal: 3 }),
+      goal: weighted(GOALS, { normal: 3 }),
+      seed: Math.floor(Math.random() * 1e9)
+    };
+  }
+  function rng(seed) { var s = seed >>> 0; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+  function layout(cfg) {
+    var r = rng(cfg.seed);
+    var hairs = ['#e8c35a', '#f1d77a', '#6b4425', '#2e1f16', '#16120f', '#b85a2a', '#d9d4c7'];
+    var skins = ['#f2c7a0', '#e9b48a', '#c98d5f', '#8f5a3a', '#f6d2b4', '#a86b45'];
+    var looks = [];
+    for (var i = 0; i < 4; i++) looks.push({ hair: hairs[Math.floor(r() * hairs.length)], skin: skins[Math.floor(r() * skins.length)], style: Math.floor(r() * 4) });
+    var parts = [];
+    var place = PLACES[cfg.place], ball = BALLS[cfg.ball], ch = CHARS[cfg.chars], goal = GOALS[cfg.goal];
+    if (cfg.place !== 'street') parts.push(place.name);
+    if (cfg.ball !== 'normal') parts.push(ball.name);
+    if (cfg.chars !== 'normal') parts.push(ch.name);
+    if (cfg.goal !== 'normal') parts.push(goal.name);
+    return { cfg: cfg, place: cfg.place, ballKind: cfg.ball, ball: ball, chars: ch, goal: goal, looks: looks,
+      hoops: [hoopGeom(-1, goal), hoopGeom(1, goal)], titleParts: parts, title: parts.join(' · ') };
+  }
+
+  // hoop shape: side -1 is the left hoop, +1 is the right hoop
+  function hoopGeom(side, goal) {
+    var boardIn = side < 0 ? 44 : 246;            // inner side of the backboard
+    var d = side < 0 ? 1 : -1;                    // direction into the court
+    var rimY = goal.rimY;
+    var backEnd = boardIn + d * 5;
+    var frontX = backEnd + d * (goal.open + 1.5);
+    var openA = Math.min(backEnd, frontX - d * 1.5), openB = Math.max(backEnd, frontX - d * 1.5);
+    return {
+      side: side, d: d, boardIn: boardIn, boardOut: boardIn - d * 3, boardTop: rimY - 34, boardBot: rimY + 6,
+      rimY: rimY, backEnd: backEnd, frontX: frontX, openA: openA, openB: openB,
+      targetX: (openA + openB) / 2 + d * 3.5, poleX: side < 0 ? 19.5 : 270.5
+    };
+  }
+
+  // ---------- game ----------
+  class Game { constructor() {
+    this.score = [0, 0];
+    this.keys = [false, false];
+    this.state = 'play';           // play | goal | over
+    this.timer = 0;
+    this.lastScorer = -1;
+    this.events = [];
+    this.round = 0;
+    this.slow = 0;
+    this.newRound(randomConfig(true));
+  } }
+
+  Game.prototype.newRound = function (cfg) {
+    this.cfg = cfg;
+    this.L = layout(cfg);
+    this.round++;
+    this.roundTime = 0;
+    this.build();
+    this.events.push('round');
+  };
+
+  Game.prototype.resetMatch = function () {
+    this.score = [0, 0];
+    this.state = 'play';
+    this.lastScorer = -1;
+    this.newRound(randomConfig(false));
+  };
+
+  function P(x, y) { return Vec2(x * S, y * S); }
+
+  Game.prototype.build = function () {
+    var L = this.L, self = this;
+    var world = new pl.World({ gravity: Vec2(0, G * S) });
+    this.world = world;
+    var st = world.createBody();
+    this.static = st;
+    var fr = PLACES[L.place].friction;
+    // floor
+    st.createFixture(pl.Box(600 * S, 30 * S, P(145, GROUND + 30), 0), { friction: fr, restitution: 0, userData: { kind: 'ground' } });
+    // bouncy side walls
+    st.createFixture(pl.Box(2.5 * S, 400 * S, P(WALL_L - 2.5, GROUND - 400), 0), { friction: 0, restitution: 1, userData: { kind: 'wall' } });
+    st.createFixture(pl.Box(2.5 * S, 400 * S, P(WALL_R + 2.5, GROUND - 400), 0), { friction: 0, restitution: 1, userData: { kind: 'wall' } });
+    // slanted hoop pole bases
+    [[36, -30], [254, 30]].forEach(function (q) {
+      var a = q[1] * Math.PI / 180;
+      var cx = q[0] + Math.sin(a) * 14.5, cy = GROUND - Math.cos(a) * 14.5;
+      st.createFixture(pl.Box(1.5 * S, 14.5 * S, P(cx, cy), a), { friction: 0, restitution: 1, userData: { kind: 'wall' } });
+    });
+    // hoops
+    this.hoopFix = [[], []];
+    L.hoops.forEach(function (h, hi) {
+      var bx = (h.boardIn + h.boardOut) / 2;
+      var f1 = st.createFixture(pl.Box(1.5 * S, (h.boardBot - h.boardTop) / 2 * S, P(bx, (h.boardTop + h.boardBot) / 2), 0), { friction: 0, restitution: 0, userData: { kind: 'board', hoop: hi } });
+      var f2 = st.createFixture(pl.Box(Math.abs(h.backEnd - h.boardIn) / 2 * S, 2 * S, P((h.backEnd + h.boardIn) / 2, h.rimY), 0), { friction: 0, restitution: 0, userData: { kind: 'rim', hoop: hi } });
+      var f3 = st.createFixture(pl.Circle(P(h.frontX, h.rimY), 2 * S), { friction: 0, restitution: 0, userData: { kind: 'rim', hoop: hi } });
+      self.hoopFix[hi] = [f1, f2, f3];
+    });
+    this.hoopOff = [0, 0];
+
+    // players: 0,1 are team 0 on the left (facing right), 2,3 are team 1 on the right
+    var xs = [74, 115, 176, 217];
+    this.players = [];
+    for (var i = 0; i < 4; i++) this.players.push(this.makePlayer(i, xs[i]));
+
+    // ball
+    this.ball = null;
+    this.makeBall(CENTER + (Math.random() - 0.5) * 6, 58);
+    this.holder = -1;
+    this.magnet = -1;
+    this.idle = 0;
+
+    world.on('pre-solve', function (c) {
+      var ua = c.getFixtureA().getUserData() || {}, ub = c.getFixtureB().getUserData() || {};
+      var h = ua.hoop !== undefined ? ua : (ub.hoop !== undefined ? ub : null);
+      var b = ua.kind === 'ball' || ub.kind === 'ball';
+      if (h && b && self.hoopOff[h.hoop] > 0) c.setEnabled(false);
+    });
+    world.on('begin-contact', function (c) {
+      var ua = c.getFixtureA().getUserData() || {}, ub = c.getFixtureB().getUserData() || {};
+      var o = ua.kind === 'ball' ? ub : (ub.kind === 'ball' ? ua : null);
+      if (!o) return;
+      var v = self.ball.getLinearVelocity().length() / S;
+      if (o.kind === 'ground' && v > 40) self.events.push('bounce');
+      else if (o.kind === 'rim' && v > 25) self.events.push('rim');
+      else if (o.kind === 'board' && v > 25) self.events.push('board');
+      else if ((o.kind === 'body' || o.kind === 'head') && v > 60) self.events.push('hit');
+      else if (o.kind === 'wall' && v > 50) self.events.push('bounce');
+    });
+  };
+
+  Game.prototype.makeBall = function (x, y) {
+    var b = this.L.ball;
+    if (this.ball) this.world.destroyBody(this.ball);
+    var ball = this.world.createBody({ type: 'dynamic', position: P(x, y), bullet: true, linearDamping: b.damping, angularDamping: 0.5 });
+    ball.createFixture(pl.Circle(b.r * S), { density: b.density, restitution: b.restitution, friction: b.friction, userData: { kind: 'ball' } });
+    this.ball = ball;
+    this.prevBallY = y;
+  };
+
+  Game.prototype.makePlayer = function (idx, x) {
+    var world = this.world, ch = this.L.chars, h = ch.h;
+    var facing = idx < 2 ? 1 : -1, group = -(idx + 1);
+    var body = world.createBody({ type: 'dynamic', position: P(x, GROUND - 0.02), fixedRotation: true });
+    var area = 6 * h * S * S;
+    body.createFixture(pl.Box(3 * S, h / 2 * S, Vec2(0, -h / 2 * S), 0), { density: 1 / area, friction: 1, restitution: 0, filterGroupIndex: group, userData: { kind: 'body', p: idx } });
+    var head = world.createBody({ type: 'dynamic', position: P(x, GROUND - h - 2.5) });
+    head.createFixture(pl.Circle(4.5 * S), { density: 1, friction: 0, restitution: 0, filterGroupIndex: group, userData: { kind: 'head', p: idx } });
+    world.createJoint(pl.RevoluteJoint({ enableLimit: true, lowerAngle: -10 * Math.PI / 180, upperAngle: 10 * Math.PI / 180 }, body, head, P(x, GROUND - h + 3)));
+    return { idx: idx, team: idx < 2 ? 0 : 1, facing: facing, body: body, head: head, h: h, reach: ch.arm,
+      angular: 0, jump: false, moreJump: 0, wait: 0, upArrow: false, onGround: true, prevKey: false,
+      arm: 0, armed: false, regrab: 0, armTouch: false };
+  };
+
+  function deg(a) { return a * 180 / Math.PI; }
+  function normDeg(a) { a = a % 360; if (a > 180) a -= 360; if (a < -180) a += 360; return a; }
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  // player points in pixels
+  Game.prototype.pt = function (p, lx, ly) { var w = p.body.getWorldPoint(Vec2(lx * S, ly * S)); return { x: w.x / S, y: w.y / S }; };
+  Game.prototype.feet = function (p) { var q = p.body.getPosition(); return { x: q.x / S, y: q.y / S }; };
+  Game.prototype.top = function (p) { return this.pt(p, 0, -(p.h - 2)); };
+  Game.prototype.shoulder = function (p) { return this.pt(p, -p.facing * 3, -(p.h - 5)); };
+  Game.prototype.armAngle = function (p) { return -p.facing * p.arm; };   // arm angle on screen: 0 means down
+  Game.prototype.hand = function (p) {
+    var s = this.shoulder(p), a = this.armAngle(p) * Math.PI / 180;
+    return { x: s.x - Math.sin(a) * p.reach, y: s.y + Math.cos(a) * p.reach };
+  };
+  Game.prototype.onGround = function (p) {
+    var a = p.body.getAngle(), c = Math.cos(a), s = Math.sin(a), q = p.body.getPosition();
+    var ys = [[-3, 0], [3, 0], [-3, -p.h], [3, -p.h]].map(function (v) { return q.y / S + v[0] * s + v[1] * c; });
+    return Math.max.apply(null, ys) >= GROUND - 3;
+  };
+
+  Game.prototype.setKey = function (team, down) {
+    if (this.state === 'over' && down && !this.keys[team] && this.timer <= 0) { this.keys[team] = down; this.resetMatch(); return; }
+    this.keys[team] = down;
+  };
+
+  Game.prototype.grab = function (i) {
+    var p = this.players[i];
+    if (this.holder >= 0 && this.holder !== i) this.players[this.holder].armed = false;
+    this.events.push(this.holder >= 0 ? 'steal' : 'catch');
+    this.holder = i;
+    this.magnet = -1;
+    p.armed = false;
+    this.ball.setActive(false);
+  };
+
+  Game.prototype.throwBall = function (p) {
+    var hp = this.hand(p);
+    var hoop = this.L.hoops[p.team === 0 ? 1 : 0];
+    var k = p.arm / ARM_DIV;
+    var c = THROW_C + (78 - this.L.goal.rimY);
+    var vx = (hoop.targetX - hp.x) * k * rand(0.9, 1.1);
+    var vy = (-hp.y - c) * k * rand(0.9, 1.1);
+    this.holder = -1;
+    p.armed = false;
+    p.regrab = 0.25;
+    this.ball.setActive(true);
+    this.ball.setTransform(P(hp.x, hp.y), this.ball.getAngle());
+    this.ball.setLinearVelocity(Vec2(vx * S, vy * S));
+    this.ball.setAngularVelocity(-p.facing * 4);
+    this.hoopOff[p.team === 0 ? 0 : 1] = 0.1;   // your own hoop lets the ball pass for a moment
+    this.events.push('shoot');
+  };
+
+  Game.prototype.step = function () {
+    var ts = this.slow > 0 ? 0.4 : 1;
+    var dt = DT * ts, i, p;
+    this.roundTime += DT;
+    if (this.slow > 0) this.slow -= DT;
+    for (i = 0; i < 2; i++) if (this.hoopOff[i] > 0) this.hoopOff[i] -= dt;
+    var playing = this.state !== 'over';
+
+    for (i = 0; i < 4; i++) {
+      p = this.players[i];
+      var f = this.feet(p), t = this.top(p);
+      var ang = normDeg(deg(p.body.getAngle()));
+      var ground = this.onGround(p);
+      // landing gives a random push that makes the player wobble
+      if (ground && !p.onGround) {
+        p.angular = (f.x >= t.x ? 1 : -1) * rand(LAND_MIN, LAND_MAX);
+        if (this.roundTime > 0.3) this.events.push('land');
+      }
+      if (ground && p.jump) { p.jump = false; p.moreJump = 0; }
+      p.onGround = ground;
+      // wobble is controlled only on the ground; in the air the body keeps spinning as it was
+      if (ground) {
+        if (f.y < t.y) p.angular = (f.x > t.x ? 1 : -1) * WOOBLE;       // upside down: flip back
+        p.body.setAngularVelocity(p.angular * DT * ANGULAR_FORCE * Math.PI / 180);
+        p.angular = lerp(p.angular, 0, dt / DIVIDE_SMOOTH);
+        if (Math.abs(ang) <= 10) p.angular = lerp(p.angular, 0, dt / DIVIDE_SMOOTH);
+        else if (f.x > t.x) p.angular += ANGULAR_SUB * dt * 60;
+        else if (f.x < t.x) p.angular -= ANGULAR_SUB * dt * 60;
+      }
+
+      // controls
+      var key = playing && this.keys[p.team];
+      if (p.wait > 0) p.wait -= dt;
+      if (p.regrab > 0) p.regrab -= dt;
+      if (key && !p.prevKey && this.holder === i && !p.armed) p.armed = true;
+      if (key) {
+        // jump
+        if (!p.upArrow && p.wait <= 0 && !p.jump) {
+          p.upArrow = true;
+          p.angular = 0; p.jump = true; p.wait = 0.3;
+          if (ground) {
+            var ax = t.x - f.x, ay = t.y - f.y, al = Math.sqrt(ax * ax + ay * ay) || 1;
+            p.body.setLinearVelocity(Vec2(ax / al * JUMP_V0 * S, ay / al * JUMP_V0 * S));
+            p.body.setAngularVelocity(0);
+            this.events.push('jump');
+          }
+          p.angular = -JUMP_LEAN * (f.x - t.x);
+        }
+        // extra push along the body while the button is held
+        if (JUMP_THRUST > 0 && p.moreJump < MORE_JUMP_MAX) {
+          var bx = t.x - f.x, by = t.y - f.y, bl = Math.sqrt(bx * bx + by * by) || 1;
+          var v = p.body.getLinearVelocity();
+          var k2 = JUMP_THRUST * ts;
+          p.body.setLinearVelocity(Vec2(v.x + bx / bl * k2 * S, v.y + by / bl * k2 * S));
+          p.moreJump += MORE_JUMP_RATE * dt;
+        }
+        p.arm = Math.min(ARM_MAX, p.arm + ARM_SPEED * ts);
+      } else {
+        p.upArrow = false;
+        p.arm = p.arm > 1 ? Math.max(0, p.arm - ARM_SPEED * ts) : 0;
+        if (p.prevKey && p.armed && this.holder === i) this.throwBall(p);
+      }
+      p.prevKey = key;
+    }
+
+    // ball and arms
+    var bp = this.ball.getPosition(), bx0 = bp.x / S, by0 = bp.y / S, br = this.L.ball.r;
+    for (i = 0; i < 4; i++) {
+      p = this.players[i];
+      var s = this.shoulder(p), hnd = this.hand(p);
+      // does the ball touch the arm (line from shoulder to hand)
+      var dx = hnd.x - s.x, dy = hnd.y - s.y, ll = dx * dx + dy * dy;
+      var tt = Math.max(0, Math.min(1, ((bx0 - s.x) * dx + (by0 - s.y) * dy) / (ll || 1)));
+      var cx = s.x + dx * tt - bx0, cy = s.y + dy * tt - by0;
+      var touch = cx * cx + cy * cy < (br + 2) * (br + 2);
+      if (touch && !p.armTouch && this.holder !== i && p.regrab <= 0 && this.state !== 'over') {
+        var ok = this.holder < 0 || this.players[this.holder].team !== p.team;
+        if (ok) this.grab(i);
+      }
+      p.armTouch = touch;
+      // magnet: a low ball near the hand gets pulled into it
+      if (this.holder < 0 && this.magnet < 0 && p.regrab <= 0 && by0 >= 125 && Math.abs(bx0 - hnd.x) < 10 + br && Math.abs(by0 - hnd.y) < 10 + br) {
+        this.magnet = i;
+        this.ball.setActive(false);
+      }
+    }
+    if (this.magnet >= 0) {
+      p = this.players[this.magnet];
+      var mh = this.hand(p);
+      var nx = lerp(bx0, mh.x, dt * 10), ny = lerp(by0, mh.y, dt * 10);
+      this.ball.setTransform(P(nx, ny), this.ball.getAngle());
+      if (Math.abs(nx - mh.x) < 3 && Math.abs(ny - mh.y) < 3) this.grab(this.magnet);
+      else if (Math.abs(nx - mh.x) > 30 || Math.abs(ny - mh.y) > 30) { this.magnet = -1; this.ball.setActive(true); this.ball.setLinearVelocity(Vec2(0, 0)); }
+    }
+
+    this.world.step(dt, 8, 3);
+
+    if (this.holder >= 0) {
+      var hp2 = this.hand(this.players[this.holder]);
+      this.ball.setTransform(P(hp2.x, hp2.y), this.ball.getAngle());
+    }
+
+    // score
+    bp = this.ball.getPosition();
+    var bx = bp.x / S, by = bp.y / S;
+    if (this.holder < 0 && this.magnet < 0 && this.state === 'play') {
+      for (var hi = 0; hi < 2; hi++) {
+        var h = this.L.hoops[hi];
+        var line = h.rimY + 2;
+        if (this.prevBallY < line && by >= line && bx > h.openA + br * 0.3 && bx < h.openB - br * 0.3 && this.ball.getLinearVelocity().y > 0) {
+          var team = hi === 1 ? 0 : 1;   // the right hoop gives a point to team 0
+          this.score[team]++;
+          this.lastScorer = team;
+          this.slow = 0.7;
+          this.events.push('score');
+          if (this.score[team] >= WIN_SCORE) { this.state = 'over'; this.timer = 1.4; this.events.push('win'); }
+          else { this.state = 'goal'; this.timer = 1.8; }
+        }
+      }
+    }
+    this.prevBallY = by;
+
+    // ball flew away or stopped moving
+    var bv = this.ball.getLinearVelocity().length() / S;
+    if (this.holder < 0 && this.magnet < 0 && bv < 8) this.idle += DT; else this.idle = 0;
+    var out = bx < 0 || bx > FIELD_W || by > GROUND + 20 || by < -400;
+    if (out || this.idle > (by < GROUND - 15 ? 2.5 : 5)) {
+      this.idle = 0;
+      this.ball.setActive(true);
+      this.makeBall(CENTER + (Math.random() - 0.5) * 6, 40);
+      this.events.push('redrop');
+    }
+    for (i = 0; i < 4; i++) {
+      p = this.players[i];
+      var fp = this.feet(p);
+      if (fp.x < 0 || fp.x > FIELD_W || fp.y > GROUND + 30 || !isFinite(fp.x)) {
+        p.body.setTransform(P(i < 2 ? 90 : 200, GROUND - 40), 0); p.body.setLinearVelocity(Vec2(0, 0));
+        p.head.setTransform(P(i < 2 ? 90 : 200, GROUND - 40 - p.h - 2.5), 0); p.head.setLinearVelocity(Vec2(0, 0));
+      }
+    }
+
+    if (this.state === 'goal') {
+      this.timer -= DT;
+      if (this.timer <= 0) { this.state = 'play'; this.newRound(randomConfig(false)); }
+    } else if (this.state === 'over') this.timer -= DT;
+  };
+
+  // snapshot for drawing and network: per player [x, y, angle, headX, headY, headAngle, arm], then ball [x, y, angle]
+  Game.prototype.bodies = function () {
+    var out = [], i;
+    for (i = 0; i < 4; i++) {
+      var p = this.players[i], a = p.body.getPosition(), h = p.head.getPosition();
+      out.push(a.x / S, a.y / S, p.body.getAngle(), h.x / S, h.y / S, p.head.getAngle(), this.armAngle(p));
+    }
+    var b = this.ball.getPosition();
+    out.push(b.x / S, b.y / S, this.ball.getAngle());
+    return out;
+  };
+  Game.prototype.takeEvents = function () { var e = this.events; this.events = []; return e; };
+
+  // ---------- computer player ----------
+  class Bot { constructor(team, level) {
+    this.team = team; this.level = level || 1;
+    this.down = false; this.t = 0; this.plan = null; this.cool = 0.4;
+  } }
+  Bot.prototype.update = function (g) {
+    var dt = DT;
+    if (g.state === 'over') { this.down = false; return false; }
+    var mine = g.players.filter(function (p) { return p.team === this.team; }, this);
+    var holder = g.holder >= 0 ? g.players[g.holder] : null;
+    var bp = g.ball.getPosition(), bx = bp.x / S, by = bp.y / S;
+    this.t += dt;
+    if (this.cool > 0) { this.cool -= dt; return this.down; }
+    if (holder && holder.team === this.team) {
+      // holding the ball: press, wait for the arm to go up, release
+      if (!this.down) {
+        if (!holder.armed && this.t > 0.08 + Math.random() * 0.1) { this.down = true; this.t = 0; this.target = 150 + Math.random() * 30; }
+      } else if (holder.armed && holder.arm >= Math.min(180, this.target)) { this.down = false; this.t = 0; this.cool = 0.1; }
+      else if (!holder.armed && this.t > 0.1) { this.down = false; this.t = 0; }
+      return this.down;
+    }
+    if (this.down) {
+      if (this.t > this.hold) { this.down = false; this.t = 0; this.cool = 0.12 + Math.random() * 0.25; }
+      return this.down;
+    }
+    var want = 0.02;
+    for (var i = 0; i < mine.length; i++) {
+      var p = mine[i], f = g.feet(p);
+      var dx = (bx - f.x) * p.facing, ady = f.y - by;
+      if (Math.abs(bx - f.x) < 40 && ady < 90) want = Math.max(want, dx > -10 ? 0.35 : 0.12);
+      if (holder && holder.team !== this.team && Math.abs(bx - f.x) < 35) want = Math.max(want, 0.3);
+    }
+    if (Math.random() < want * (0.6 + 0.3 * this.level)) { this.down = true; this.t = 0; this.hold = 0.12 + Math.random() * 0.3; }
+    return this.down;
+  };
+
+export var Sim = { Game: Game, Bot: Bot, layout: layout, randomConfig: randomConfig, PLACES: PLACES, BALLS: BALLS, CHARS: CHARS, GOALS: GOALS,
+    DT: DT, WIN_SCORE: WIN_SCORE, FIELD_W: FIELD_W, FIELD_H: FIELD_H, GROUND: GROUND, S: S };

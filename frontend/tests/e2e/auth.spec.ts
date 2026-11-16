@@ -7,8 +7,7 @@ Copy a test pattern here when you add another end-to-end browser flow.
 import { expect, test } from "@playwright/test";
 
 test("user can login, manage notes, and logout", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("link", { name: "Open login page" }).click();
+  await page.goto("/login");
   await expect(page.getByLabel("Username")).toHaveValue("");
   await expect(page.getByLabel("Password")).toHaveValue("");
   await page.getByLabel("Username").fill("user");

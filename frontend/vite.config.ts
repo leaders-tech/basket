@@ -38,12 +38,13 @@ export default defineConfig(({ mode }) => {
           navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/ws(?:\/|$)/],
         },
         manifest: {
-          name: "Template PWA",
-          short_name: "TemplatePWA",
-          description: "Small starter app for school projects.",
-          theme_color: "#0e1a2b",
-          background_color: "#eff6ff",
+          name: "Wobble Hoops",
+          short_name: "Wobble Hoops",
+          description: "One-button basketball for one or two players, also online.",
+          theme_color: "#0d0e12",
+          background_color: "#0d0e12",
           display: "standalone",
+          orientation: "landscape",
           start_url: "/",
           // These PNG files come from public/icon.svg. Run `npm run icons` after changing the SVG (see icon/AGENTS.md).
           icons: [

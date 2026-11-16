@@ -10,12 +10,14 @@ import logging
 
 from aiohttp import web
 
-from backend.app_keys import DB, SETTINGS, WS_HUB
+from backend.app_keys import DB, GAME_ROOMS, SETTINGS, WS_HUB
 from backend.auth.routes import setup_auth_routes
 from backend.config import Settings, load_settings, validate_settings
 from backend.db.connection import open_db
 from backend.db.migrations import run_migrations
 from backend.db.seed import ensure_admin, seed_dev_data
+from backend.game.rooms import RoomStore
+from backend.game.routes import setup_game_routes
 from backend.http.middleware import cors_middleware, error_middleware, request_logging_middleware
 from backend.http.routes import setup_api_routes
 from backend.logging_config import configure_logging
@@ -61,10 +63,12 @@ def create_app(settings: Settings | None = None) -> web.Application:
     app = web.Application(middlewares=[request_logging_middleware, error_middleware, cors_middleware])
     app[SETTINGS] = resolved_settings
     app[WS_HUB] = WebSocketHub()
+    app[GAME_ROOMS] = RoomStore()
 
     setup_auth_routes(app)
     setup_api_routes(app)
     setup_ws_routes(app)
+    setup_game_routes(app)
 
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)

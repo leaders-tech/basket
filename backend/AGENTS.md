@@ -5,8 +5,9 @@
 - This backend is starter template material. None of its code, demo behavior, tables, routes, dependencies, or architecture must be preserved for its own sake.
 - Replace or remove starter parts as the user's requested application takes shape. The defaults below apply until the user needs a different design.
 - With every application feature request, update this file and the root `AGENTS.md` to identify remaining template parts and actual user application parts. Update `backend/db/AGENTS.md` too when database ownership changes.
-- Remaining template: all of `backend/`, including auth, demo users, notes, admin endpoints, WebSocket examples, migrations, and tests.
-- User application: none yet.
+- User application: online game rooms for Wobble Hoops — `backend/game/rooms.py`, `backend/game/routes.py`
+  (public websocket `/ws/game`, no login, rooms live only in memory), and `backend/tests/test_game.py`.
+- Remaining template: auth, demo users, notes, admin endpoints, the logged-in `/ws` example, migrations, and their tests.
 - When the transition is complete, remove template inventories and all template-specific wording and instructions here; retain only instructions for the user's backend.
 
 ## Working defaults

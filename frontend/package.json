@@ -16,6 +16,7 @@
     "icons": "pwa-assets-generator --config icon/pwa-assets.config.ts"
   },
   "dependencies": {
+    "planck": "^1.4.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.5"

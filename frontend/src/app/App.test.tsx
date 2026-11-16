@@ -15,6 +15,10 @@ vi.mock("../pages/AdminPage", () => ({
   AdminPage: () => <h2>Admin page</h2>,
 }));
 
+vi.mock("../pages/GamePage", () => ({
+  GamePage: () => <h2>Game</h2>,
+}));
+
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -48,6 +52,12 @@ function renderApp(path: string, user: User | null, logout = vi.fn()) {
 }
 
 describe("App routes", () => {
+  it("shows the game on the home address without the account header", () => {
+    renderApp("/", null);
+    expect(screen.getByRole("heading", { name: "Game" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Login" })).not.toBeInTheDocument();
+  });
+
   it("redirects anonymous users to login", () => {
     renderApp("/dashboard", null);
     expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();

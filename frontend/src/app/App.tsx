@@ -1,5 +1,5 @@
 /*
-This file builds the main frontend layout, routes, and route guards.
+This file builds the main frontend routes: the full-screen game at "/" and the template login pages inside a shared layout.
 Edit this file when top-level pages, navigation, or auth guard behavior changes.
 Copy the route pattern here when you add another top-level page.
 */
@@ -7,7 +7,7 @@ Copy the route pattern here when you add another top-level page.
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "./auth";
-import { HomePage } from "../pages/HomePage";
+import { GamePage } from "../pages/GamePage";
 import { LoginPage } from "../pages/LoginPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { AdminPage } from "../pages/AdminPage";
@@ -31,12 +31,12 @@ function Layout({ children }: { children: React.ReactNode }) {
       <header className="border-b border-slate-200/70 bg-white/70 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
           <div>
-            <h1 className="text-xl font-semibold text-slate-900">Template PWA</h1>
-            <p className="text-sm text-slate-600">Simple starter for school projects.</p>
+            <h1 className="text-xl font-semibold text-slate-900">Wobble Hoops</h1>
+            <p className="text-sm text-slate-600">Account pages</p>
           </div>
           <nav className="flex items-center gap-3 text-sm font-medium text-slate-700">
             <NavLink className="rounded-full px-3 py-2 hover:bg-slate-100" to="/">
-              Home
+              Play
             </NavLink>
             {user ? (
               <>
@@ -99,9 +99,18 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 
 export function App() {
   return (
+    <Routes>
+      {/* The game fills the whole screen, so it does not use the shared layout. */}
+      <Route path="/" element={<GamePage />} />
+      <Route path="*" element={<LayoutRoutes />} />
+    </Routes>
+  );
+}
+
+function LayoutRoutes() {
+  return (
     <Layout>
       <Routes>
-        <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route
           path="/dashboard"

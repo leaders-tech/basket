@@ -11,8 +11,21 @@
 
 ## Current ownership
 
-- Remaining template: the entire repository, including demo login/admin accounts, notes, pages, branding, PWA assets, migrations, tests, development helpers, and deployment examples.
-- User application: none yet. Dependency maintenance and template instruction updates do not turn the starter into a user application.
+- User application: **Wobble Hoops**, a one-button pixel basketball game (1 player vs computer, 2 players on one
+  keyboard, and online play with a 4-character room code). All on-screen text is English.
+  - Game page at `/`: `frontend/src/pages/GamePage.tsx` (+ test).
+  - Game code (plain JavaScript modules): `frontend/src/game/` — `sim.js` physics and rules (uses the `planck`
+    package), `render.js` canvas drawing and on-screen text, `game.js` menu, controls, game loop and online play,
+    `sound.js` sounds, `game.css` panels, `fonts/` the Press Start 2P pixel font (SIL Open Font License).
+    Unit tests: `sim.test.js`, `render.test.js`. E2E test: `frontend/tests/e2e/game.spec.ts`.
+  - Online rooms: `backend/game/rooms.py` (in-memory rooms) and `backend/game/routes.py` (public websocket
+    `/ws/game`, no login). Tests: `backend/tests/test_game.py`.
+  - App name, PWA manifest, and icon (`frontend/public/icon.svg` and generated icons).
+- Remaining template: demo login/admin accounts, the login/dashboard/admin pages and their shared layout, notes,
+  the logged-in `/ws` socket example, migrations, their tests, development helpers, and deployment examples.
+  The game does not use them. Remove them when the student decides the game does not need accounts.
+- On-screen game text is drawn with the pixel font: every letter is as wide as the font size. Use `fitSize` and
+  `wrapParts` from `frontend/src/game/render.js` for long labels, so they never run off the screen or overlap.
 
 ## Working defaults
 

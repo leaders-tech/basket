@@ -5,8 +5,16 @@
 - This frontend is a starter template. Nothing in its demo pages, features, design, branding, assets, dependencies, or tooling must be preserved for its own sake.
 - Replace or remove starter UI and flows to build what the user requests. The defaults below do not require retaining the template's product or architecture.
 - With every application feature request, update this file and the root `AGENTS.md` in the same change. Identify remaining template pages/features and the parts that now belong to the user's application.
-- Remaining template: all of `frontend/`, including the home/login/dashboard/admin pages, notes panel, auth/socket examples, PWA branding/assets, and tests.
-- User application: none yet.
+- User application: the Wobble Hoops game — `src/pages/GamePage.tsx` (route `/`, full screen, outside the shared
+  layout), all of `src/game/`, `tests/e2e/game.spec.ts`, the app name in `index.html` and `vite.config.ts`, and the
+  icon in `public/`.
+- Remaining template: the login/dashboard/admin pages and their shared layout in `src/app/App.tsx`, the notes panel,
+  auth and `src/shared/socket.ts` examples, and their tests.
+- The game code in `src/game/` is plain JavaScript (ES modules), not TypeScript. `game.d.ts` tells TypeScript what
+  `game.js` exports. Its tests are `*.test.js` next to the code. The game finds its HTML elements by `id`, so keep the
+  ids in `GamePage.tsx` and `game.js` in sync.
+- Online play connects to `/ws/game` (see `SOCKET_PATH` in `src/game/game.js`). The host's browser runs the physics
+  and sends snapshots; the guest sends only button presses.
 - When the transition is complete, remove template inventories and all template-specific wording and instructions here. Keep instructions that describe the user's frontend.
 
 ## Working defaults

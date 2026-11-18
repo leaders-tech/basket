@@ -14,7 +14,9 @@
   `game.js` exports. Its tests are `*.test.js` next to the code. The game finds its HTML elements by `id`, so keep the
   ids in `GamePage.tsx` and `game.js` in sync.
 - Online play connects to `/ws/game` (see `SOCKET_PATH` in `src/game/game.js`). The host's browser runs the physics
-  and sends snapshots; the guest sends only button presses.
+  and sends one snapshot per tick (60 per second, with tick number `n`); the guest sends only button presses and the
+  cheat key. The host's physics clock is driven by `ticker.js` too, so a hidden host tab does not freeze the guest.
+  The guest blends snapshots with `netsync.js`, which keeps the display delay as small as the network allows.
 - When the transition is complete, remove template inventories and all template-specific wording and instructions here. Keep instructions that describe the user's frontend.
 
 ## Working defaults

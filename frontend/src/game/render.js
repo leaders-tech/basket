@@ -35,6 +35,8 @@ Do not copy this file. Add a new court as one more branch in background() and a 
   // Use 16 px when the text fits in maxW, otherwise 8 px.
   export function fitSize(str, maxW) { return str.length * 16 + 4 <= maxW ? 16 : 8; }
   // Join round title parts into lines no longer than maxChars, so long titles never run off the screen.
+  // Left edge of a team's score box: team 0 plays on the left, so its score is in the bottom-left corner.
+  export function scoreX(team, W, boxW) { return team === 0 ? 0 : W - boxW; }
   export function wrapParts(parts, maxChars) {
     var lines = [], cur = '';
     for (var i = 0; i < parts.length; i++) {
@@ -427,13 +429,13 @@ Do not copy this file. Add a new court as one more branch in background() and a 
 
   Renderer.prototype.hud = function (v) {
     var ctx = this.ctx, W = this.W, cx = Math.round(W / 2);
-    // score in the bottom corners: left is team 1 (they attack the left hoop), right is team 0
+    // score in the bottom corners, on each team's own side: team 0 (left), team 1 (right)
     for (var t = 0; t < 2; t++) {
-      var T = TEAM[t], bw2 = 34, x = t === 1 ? 0 : W - bw2, y = H - 20;
+      var T = TEAM[t], bw2 = 34, x = scoreX(t, W, bw2), y = H - 20, inner = t === 0 ? 0 : 1;
       px(ctx, '#17120f', x, y - 1, bw2, 21);
-      px(ctx, T.ui, x + (t === 1 ? 0 : 1), y, bw2 - 1, 20);
-      px(ctx, shade(T.ui, 1.25), x + (t === 1 ? 0 : 1), y, bw2 - 1, 2);
-      px(ctx, shade(T.ui, 0.8), x + (t === 1 ? 0 : 1), y + 17, bw2 - 1, 3);
+      px(ctx, T.ui, x + inner, y, bw2 - 1, 20);
+      px(ctx, shade(T.ui, 1.25), x + inner, y, bw2 - 1, 2);
+      px(ctx, shade(T.ui, 0.8), x + inner, y + 17, bw2 - 1, 3);
       text(ctx, String(v.score[t]), 8, x + bw2 / 2, y + 5, '#ffffff', '#17120f');
     }
     // pause button

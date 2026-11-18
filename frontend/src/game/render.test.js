@@ -5,7 +5,7 @@ Copy a test here when you add another text helper.
 */
 
 import { describe, expect, it } from "vitest";
-import { Render, fitSize, wrapParts } from "./render.js";
+import { Render, fitSize, scoreX, wrapParts } from "./render.js";
 
 describe("text helpers", () => {
   it("uses big text only when it fits", () => {
@@ -23,6 +23,11 @@ describe("text helpers", () => {
   it("keeps a short title on one line", () => {
     expect(wrapParts(["SNOW"], 31)).toEqual(["SNOW"]);
     expect(wrapParts([], 31)).toEqual([]);
+  });
+
+  it("shows each team's score on its own side", () => {
+    expect(scoreX(0, 290, 34)).toBe(0);
+    expect(scoreX(1, 290, 34)).toBe(256);
   });
 
   it("names the teams in English", () => {

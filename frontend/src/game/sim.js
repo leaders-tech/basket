@@ -171,6 +171,7 @@ import * as pl from "planck";
     this.holder = -1;
     this.magnet = -1;
     this.idle = 0;
+    this.cheat = null;     // cheat shot in flight: { team, t, from: {x, y}, to: {x, y}, arc }
 
     world.on('pre-solve', function (c) {
       var ua = c.getFixtureA().getUserData() || {}, ub = c.getFixtureB().getUserData() || {};
@@ -268,6 +269,32 @@ import * as pl from "planck";
     this.events.push('shoot');
   };
 
+  // Cheat code (key C): if this team holds the ball, it flies along an arc straight into the other team's hoop.
+  var CHEAT_TIME = 0.6;   // seconds of flight
+  Game.prototype.cheatShot = function (team) {
+    if (this.state !== 'play' || this.holder < 0 || this.players[this.holder].team !== team || this.cheat) return false;
+    var p = this.players[this.holder], hp = this.hand(p);
+    var hi = team === 0 ? 1 : 0, h = this.L.hoops[hi];
+    var to = { x: (h.openA + h.openB) / 2, y: h.rimY + 6 };
+    this.holder = -1;
+    this.magnet = -1;
+    p.armed = false;
+    p.regrab = CHEAT_TIME + 0.3;
+    this.ball.setActive(false);     // we move the ball ourselves, so nothing can knock it off course
+    this.cheat = { team: team, hoop: hi, t: 0, from: { x: hp.x, y: hp.y }, to: to, arc: 40 + Math.max(0, hp.y - to.y) / 2 };
+    this.events.push('shoot');
+    return true;
+  };
+
+  // Ball position on the cheat arc at u = 0..1, plus its speed in px/s.
+  function cheatPoint(c, u) {
+    // x eases in, so the ball is already right above the hoop when it comes down through the rim
+    var ease = 1 - (1 - u) * (1 - u);
+    var x = lerp(c.from.x, c.to.x, ease), y = lerp(c.from.y, c.to.y, u) - c.arc * 4 * u * (1 - u);
+    var vx = (c.to.x - c.from.x) * 2 * (1 - u) / CHEAT_TIME, vy = ((c.to.y - c.from.y) - c.arc * 4 * (1 - 2 * u)) / CHEAT_TIME;
+    return { x: x, y: y, vx: vx, vy: vy };
+  }
+
   Game.prototype.step = function () {
     var ts = this.slow > 0 ? 0.4 : 1;
     var dt = DT * ts, i, p;
@@ -343,13 +370,13 @@ import * as pl from "planck";
       var tt = Math.max(0, Math.min(1, ((bx0 - s.x) * dx + (by0 - s.y) * dy) / (ll || 1)));
       var cx = s.x + dx * tt - bx0, cy = s.y + dy * tt - by0;
       var touch = cx * cx + cy * cy < (br + 2) * (br + 2);
-      if (touch && !p.armTouch && this.holder !== i && p.regrab <= 0 && this.state !== 'over') {
+      if (touch && !this.cheat && !p.armTouch && this.holder !== i && p.regrab <= 0 && this.state !== 'over') {
         var ok = this.holder < 0 || this.players[this.holder].team !== p.team;
         if (ok) this.grab(i);
       }
       p.armTouch = touch;
       // magnet: a low ball near the hand gets pulled into it
-      if (this.holder < 0 && this.magnet < 0 && p.regrab <= 0 && by0 >= 125 && Math.abs(bx0 - hnd.x) < 10 + br && Math.abs(by0 - hnd.y) < 10 + br) {
+      if (!this.cheat && this.holder < 0 && this.magnet < 0 && p.regrab <= 0 && by0 >= 125 && Math.abs(bx0 - hnd.x) < 10 + br && Math.abs(by0 - hnd.y) < 10 + br) {
         this.magnet = i;
         this.ball.setActive(false);
       }
@@ -361,6 +388,21 @@ import * as pl from "planck";
       this.ball.setTransform(P(nx, ny), this.ball.getAngle());
       if (Math.abs(nx - mh.x) < 3 && Math.abs(ny - mh.y) < 3) this.grab(this.magnet);
       else if (Math.abs(nx - mh.x) > 30 || Math.abs(ny - mh.y) > 30) { this.magnet = -1; this.ball.setActive(true); this.ball.setLinearVelocity(Vec2(0, 0)); }
+    }
+
+    if (this.cheat) {
+      var ch = this.cheat;
+      ch.t = Math.min(CHEAT_TIME, ch.t + dt);
+      var cp = cheatPoint(ch, ch.t / CHEAT_TIME);
+      this.ball.setTransform(P(cp.x, cp.y), this.ball.getAngle() + 0.3);
+      this.ball.setLinearVelocity(Vec2(cp.vx * S, cp.vy * S));
+      if (ch.t >= CHEAT_TIME) {
+        // the ball is below the rim now: let physics take over and drop it through the net
+        this.cheat = null;
+        this.hoopOff[ch.hoop] = 0.4;
+        this.ball.setActive(true);
+        this.ball.setLinearVelocity(Vec2(0, 80 * S));
+      }
     }
 
     this.world.step(dt, 8, 3);

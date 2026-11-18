@@ -7,6 +7,7 @@ Do not copy this file. GamePage.tsx calls startGame() once and calls the returne
 import { Sim } from "./sim.js";
 import { Render } from "./render.js";
 import { createSound } from "./sound.js";
+import { createSnapshotBuffer } from "./netsync.js";
 
 export const SOCKET_PATH = "/ws/game";
 
@@ -26,7 +27,7 @@ export function startGame() {
   var bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
   var keys = { team0: false, team1: false, mine: false };
   var remoteKey = false, ws = null, roomCode = null;
-  var snaps = [], guestLayouts = {}, tickN = 0, netEvents = [];
+  var netBuf = createSnapshotBuffer(DT * 1000), guestLayouts = {}, tickN = 0, netEvents = [];
   var hover = null, menuItems = [];
 
   function panel(id) {
@@ -82,7 +83,7 @@ export function startGame() {
   function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
   function closeNet() {
     if (ws) { var w = ws; ws = null; try { w.onclose = null; w.close(); } catch { } }
-    roomCode = null; snaps = []; remoteKey = false;
+    roomCode = null; netBuf.reset(); remoteKey = false;
   }
   function connect(onOpen) {
     closeNet(); panel('p-connect');
@@ -119,7 +120,7 @@ export function startGame() {
         Sfx.play('round'); toast('Your opponent joined!', 2000);
         break;
       case 'joined':
-        mode = 'guest'; roomCode = m.code; snaps = []; panel(null);
+        mode = 'guest'; roomCode = m.code; netBuf.reset(); panel(null);
         hint('Room ' + m.code + ' · you are PURPLE (right) · button: ' + BUTTON + ' · Esc: leave');
         toast('Joined room ' + m.code, 2000);
         break;
@@ -129,10 +130,12 @@ export function startGame() {
       case 'i':
         if (mode === 'host') remoteKey = !!m.d;
         break;
+      case 'c':
+        if (mode === 'host') game.cheatShot(1);   // the guest pressed the cheat key
+        break;
       case 's':
         if (mode !== 'guest') break;
-        snaps.push({ at: performance.now(), s: m });
-        if (snaps.length > 12) snaps.shift();
+        netBuf.push(m, performance.now());
         if (m.ev) for (var i = 0; i < m.ev.length; i++) handleEvent(m.ev[i]);
         break;
     }
@@ -153,6 +156,7 @@ export function startGame() {
     if (e.repeat || panelOpen()) return;
     Sfx.unlock();
     if (mode === 'menu') { if (e.code === 'Enter' || e.code === 'Space') { startLocal('cpu'); } return; }
+    if (e.code === 'KeyC') { cheat(); return; }
     if (mode === 'local') { if (KEYS0[e.code]) keys.team0 = true; if (KEYS1[e.code]) keys.team1 = true; }
     else if (ANY[e.code]) setMine(true);
   });
@@ -160,6 +164,13 @@ export function startGame() {
     if (mode === 'local') { if (KEYS0[e.code]) keys.team0 = false; if (KEYS1[e.code]) keys.team1 = false; }
     else if (ANY[e.code]) setMine(false);
   });
+
+  // Cheat code: C sends the ball you hold straight into the other team's hoop.
+  function cheat() {
+    if (mode === 'cpu' || mode === 'host') game.cheatShot(0);
+    else if (mode === 'local') { if (!game.cheatShot(0)) game.cheatShot(1); }
+    else if (mode === 'guest') send({ t: 'c' });
+  }
 
   function logical(e) {
     var r = canvas.getBoundingClientRect();
@@ -210,10 +221,11 @@ export function startGame() {
     for (var i = 0; i < ev.length; i++) { handleEvent(ev[i]); if (mode === 'host') netEvents.push(ev[i]); }
     if (mode === 'menu' && game.state === 'over') game = new Sim.Game();
     tickN++;
-    if (mode === 'host' && tickN % 2 === 0) {
+    if (mode === 'host') {
+      // one snapshot every tick; n is the tick number, so the guest can place it on the host's timeline
       var b = game.bodies();
       for (var j = 0; j < b.length; j++) b[j] = Math.round(b[j] * 100) / 100;
-      send({ t: 's', r: game.round, c: game.cfg, b: b, sc: game.score, st: game.state, tm: Math.round(game.timer * 100) / 100,
+      send({ t: 's', n: tickN, r: game.round, c: game.cfg, b: b, sc: game.score, st: game.state, tm: Math.round(game.timer * 100) / 100,
         ls: game.lastScorer, rt: Math.round(game.roundTime * 100) / 100, h: game.holder, ev: netEvents });
       netEvents = [];
     }
@@ -229,19 +241,18 @@ export function startGame() {
       status: null };
   }
   function guestView() {
-    if (!snaps.length) return null;
-    var rt = performance.now() - 80, a = snaps[0], b2 = null;
-    for (var i = 0; i < snaps.length; i++) { if (snaps[i].at <= rt) a = snaps[i]; else { b2 = snaps[i]; break; } }
-    var s = a.s, bodies;
-    if (b2 && b2.s.r === s.r && b2.at > a.at) {
-      var t = Math.min(1, Math.max(0, (rt - a.at) / (b2.at - a.at)));
+    var pick = netBuf.sample(performance.now());
+    if (!pick) return null;
+    var s = pick.a, b2 = pick.b, bodies = s.b;
+    if (b2 && b2.r === s.r) {
+      var t = Math.min(1, Math.max(0, pick.t));
       bodies = new Array(s.b.length);
       for (var k = 0; k < s.b.length; k++) {
         var slot = k < 28 ? k % 7 : (k - 28) + 7;
-        if (slot === 2 || slot === 5 || slot === 9) bodies[k] = lerpA(s.b[k], b2.s.b[k], t);
-        else bodies[k] = s.b[k] + (b2.s.b[k] - s.b[k]) * t;
+        if (slot === 2 || slot === 5 || slot === 9) bodies[k] = lerpA(s.b[k], b2.b[k], t);
+        else bodies[k] = s.b[k] + (b2.b[k] - s.b[k]) * t;
       }
-    } else { s = snaps[snaps.length - 1].s; bodies = s.b; }
+    }
     var key = 'r' + s.r + '_' + s.c.seed;
     if (!guestLayouts[key]) guestLayouts[key] = Sim.layout(s.c);
     return { L: guestLayouts[key], key: key, bodies: bodies, score: s.sc, state: s.st, timer: s.tm, lastScorer: s.ls, roundTime: s.rt, holder: s.h,
@@ -259,12 +270,24 @@ export function startGame() {
   }
 
   // ---------- loop ----------
-  var last = performance.now(), acc = 0;
+  // The game clock runs on its own: pump() runs every physics tick that is due. Animation frames call it,
+  // and so does a small worker timer, which keeps the host running when its tab is hidden.
+  var lastPump = performance.now(), acc = 0, lastFrame = lastPump;
+  function pump() {
+    var now = performance.now();
+    acc += Math.min(0.25, (now - lastPump) / 1000); lastPump = now;
+    while (acc >= DT) { tick(); acc -= DT; }
+  }
+  var ticker = null;
+  try {
+    ticker = new Worker(new URL('./ticker.js', import.meta.url), { type: 'module' });
+    ticker.onmessage = function () { if (!stopped && mode === 'host') pump(); };
+  } catch { ticker = null; }
+
   function frame(now) {
     if (stopped) return;
-    var dt = Math.min(0.25, (now - last) / 1000); last = now;
-    acc += dt;
-    while (acc >= DT) { tick(); acc -= DT; }
+    var dt = Math.min(0.25, (now - lastFrame) / 1000); lastFrame = now;
+    pump();
     var v = mode === 'guest' ? guestView() : hostView();
     if (v) {
       v.dt = dt; currentView = v;
@@ -303,6 +326,7 @@ export function startGame() {
   return function stop() {
     stopped = true;
     cancelAnimationFrame(rafId);
+    if (ticker) ticker.terminate();
     clearTimeout(toast.h);
     life.abort();
     closeNet();

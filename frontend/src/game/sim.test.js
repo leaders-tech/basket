@@ -46,6 +46,32 @@ describe("game rules", () => {
     expect(game.score[0] + game.score[1]).toBeLessThanOrEqual(2 * Sim.WIN_SCORE);
   });
 
+  it("cheat key sends the held ball straight into the other team's hoop", () => {
+    for (const team of [0, 1]) {
+      const game = new Sim.Game();
+      const holder = team === 0 ? 1 : 2;
+      game.grab(holder);
+      expect(game.cheatShot(1 - team)).toBe(false);
+      expect(game.cheatShot(team)).toBe(true);
+      expect(game.holder).toBe(-1);
+      let steps = 0;
+      while (game.state === "play" && steps < 120) {
+        game.step();
+        steps++;
+      }
+      expect(game.state).toBe("goal");
+      expect(game.lastScorer).toBe(team);
+      expect(game.score[team]).toBe(1);
+      expect(game.score[1 - team]).toBe(0);
+    }
+  });
+
+  it("cheat key does nothing when your team does not hold the ball", () => {
+    const game = new Sim.Game();
+    expect(game.cheatShot(0)).toBe(false);
+    expect(game.cheatShot(1)).toBe(false);
+  });
+
   it("ends the match at the win score and a button press starts a new one", () => {
     const game = new Sim.Game();
     game.score = [Sim.WIN_SCORE, 2];

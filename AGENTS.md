@@ -16,8 +16,11 @@
   - Game page at `/`: `frontend/src/pages/GamePage.tsx` (+ test).
   - Game code (plain JavaScript modules): `frontend/src/game/` — `sim.js` physics and rules (uses the `planck`
     package), `render.js` canvas drawing and on-screen text, `game.js` menu, controls, game loop and online play,
-    `sound.js` sounds, `game.css` panels, `fonts/` the Press Start 2P pixel font (SIL Open Font License).
-    Unit tests: `sim.test.js`, `render.test.js`. E2E test: `frontend/tests/e2e/game.spec.ts`.
+    `sound.js` sounds, `netsync.js` guest snapshot buffer (smooth online play), `ticker.js` worker timer that keeps
+    the host running in a hidden tab, `game.css` panels, `fonts/` the Press Start 2P pixel font (SIL Open Font License).
+    Unit tests: `sim.test.js`, `render.test.js`, `netsync.test.js`. E2E test: `frontend/tests/e2e/game.spec.ts`.
+  - Cheat code: key C while your team holds the ball (`Game.cheatShot` in `sim.js`; the guest sends `{t: 'c'}`).
+  - Each team's score box is on its own side (team 0 left, team 1 right).
   - Online rooms: `backend/game/rooms.py` (in-memory rooms) and `backend/game/routes.py` (public websocket
     `/ws/game`, no login). Tests: `backend/tests/test_game.py`.
   - App name, PWA manifest, and icon (`frontend/public/icon.svg` and generated icons).

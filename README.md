@@ -7,10 +7,13 @@ After every point the court, the ball, the players, and the hoop change at rando
 - **2 PLAYERS** — on one keyboard. Green team: W. Purple team: ↑.
 - **ONLINE** — create a room and send the 4-character code to a friend.
   To play on the same Wi-Fi, start the app with `make back-lan` and `make front-lan` (see below).
-  The host's browser runs the game, so keep the host's tab open and in front.
+  The host's browser runs the game, so keep the host's tab open (it may be in the background).
 
 Hold the button: your players jump and raise an arm. Let go to shoot. The higher the arm, the stronger the throw.
 Esc or the pause button goes back to the menu. M turns the sound on and off.
+Each team's score is shown in the bottom corner on its own side.
+
+Cheat code: press **C** while your team holds the ball, and the ball flies straight into the other team's hoop.
 
 The game is built on the school project template described below. The pixel font is Press Start 2P (SIL Open Font License).
 

@@ -33,6 +33,8 @@ test("1 player button starts a match with an English hint", async ({ page }) => 
 });
 
 test("two players meet in an online room", async ({ page, context }) => {
+  const hostFrames: string[] = [];
+  page.on("websocket", (socket) => socket.on("framereceived", (frame) => hostFrames.push(String(frame.payload))));
   await openGame(page);
   await clickMenu(page, "ONLINE");
   await page.getByRole("button", { name: "Create room" }).click();
@@ -51,6 +53,12 @@ test("two players meet in an online room", async ({ page, context }) => {
   await guest.getByRole("button", { name: "Join" }).click();
   await expect(guest.getByText(`Room ${code} · you are PURPLE (right)`, { exact: false })).toBeVisible();
   await expect(page.getByText(`Room ${code} · you are GREEN (left)`, { exact: false })).toBeVisible();
+
+  // Z + U on the guest plays the uwu sound for both players: the host gets a "u" message.
+  await guest.keyboard.down("z");
+  await guest.keyboard.press("u");
+  await guest.keyboard.up("z");
+  await expect.poll(() => hostFrames.includes('{"t": "u"}') || hostFrames.includes('{"t":"u"}')).toBe(true);
 
   await guest.close();
   await expect(page.getByText("Your opponent left the game.")).toBeVisible();

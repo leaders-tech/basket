@@ -8,6 +8,7 @@ import { Sim } from "./sim.js";
 import { Render } from "./render.js";
 import { createSound } from "./sound.js";
 import { createSnapshotBuffer } from "./netsync.js";
+import { COMBO_KEYS, comboFor } from "./combos.js";
 
 export const SOCKET_PATH = "/ws/game";
 
@@ -131,7 +132,10 @@ export function startGame() {
         if (mode === 'host') remoteKey = !!m.d;
         break;
       case 'c':
-        if (mode === 'host') game.cheatShot(1);   // the guest pressed the cheat key
+        if (mode === 'host') game.cheatShot(1);   // the guest pressed the cheat combo
+        break;
+      case 'u':
+        if (mode === 'host' || mode === 'guest') uwu(false);   // the other player pressed Z + U
         break;
       case 's':
         if (mode !== 'guest') break;
@@ -155,17 +159,30 @@ export function startGame() {
     if (ANY[e.code]) e.preventDefault();
     if (e.repeat || panelOpen()) return;
     Sfx.unlock();
+    if (COMBO_KEYS[e.code]) {
+      held[e.code] = true;
+      var action = comboFor(held, e.code);
+      if (action === 'cheat') cheat(); else if (action === 'uwu') uwu(true);
+      return;
+    }
     if (mode === 'menu') { if (e.code === 'Enter' || e.code === 'Space') { startLocal('cpu'); } return; }
-    if (e.code === 'KeyC') { cheat(); return; }
     if (mode === 'local') { if (KEYS0[e.code]) keys.team0 = true; if (KEYS1[e.code]) keys.team1 = true; }
     else if (ANY[e.code]) setMine(true);
   });
   on(window, 'keyup', function (e) {
+    delete held[e.code];
     if (mode === 'local') { if (KEYS0[e.code]) keys.team0 = false; if (KEYS1[e.code]) keys.team1 = false; }
     else if (ANY[e.code]) setMine(false);
   });
 
-  // Cheat code: C sends the ball you hold straight into the other team's hoop.
+  // Secret combos (see combos.js). held = combo keys that are down right now.
+  var held = {};
+  // Z + U: play the "uwu" sound here, and online tell the other player to play it too.
+  function uwu(fromMe) {
+    Sfx.play('uwu');
+    if (fromMe && (mode === 'host' || mode === 'guest')) send({ t: 'u' });
+  }
+  // Z + C: the ball you hold flies straight into the other team's hoop.
   function cheat() {
     if (mode === 'cpu' || mode === 'host') game.cheatShot(0);
     else if (mode === 'local') { if (!game.cheatShot(0)) game.cheatShot(1); }
@@ -198,7 +215,7 @@ export function startGame() {
     if (mode !== 'local') setMine(true);
   });
   on(window, 'pointerup', function () { if (mode !== 'local') setMine(false); });
-  on(window, 'blur', function () { keys.team0 = keys.team1 = false; setMine(false); });
+  on(window, 'blur', function () { keys.team0 = keys.team1 = false; held = {}; setMine(false); });
 
   // ---------- events ----------
   var currentView = null;

@@ -13,7 +13,10 @@ Hold the button: your players jump and raise an arm. Let go to shoot. The higher
 Esc or the pause button goes back to the menu. M turns the sound on and off.
 Each team's score is shown in the bottom corner on its own side.
 
-Cheat code: press **C** while your team holds the ball, and the ball flies straight into the other team's hoop.
+Secret combos (hold both keys at the same time):
+
+- **Z + C** — cheat shot: if your team holds the ball, it flies straight into the other team's hoop.
+- **Z + U** — plays an "uwu" sound. In an online game both players hear it.
 
 The game is built on the school project template described below. The pixel font is Press Start 2P (SIL Open Font License).
 

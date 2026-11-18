@@ -43,6 +43,8 @@ test("two players meet in an online room", async ({ page, context }) => {
   expect(code).toMatch(/^[A-Z2-9]{4}$/);
 
   const guest = await context.newPage();
+  const guestFrames: string[] = [];
+  guest.on("websocket", (socket) => socket.on("framereceived", (frame) => guestFrames.push(String(frame.payload))));
   await openGame(guest);
   await clickMenu(guest, "ONLINE");
   await guest.getByRole("textbox", { name: "Room code" }).fill("ZZZZ");
@@ -59,6 +61,12 @@ test("two players meet in an online room", async ({ page, context }) => {
   await guest.keyboard.press("u");
   await guest.keyboard.up("z");
   await expect.poll(() => hostFrames.includes('{"t": "u"}') || hostFrames.includes('{"t":"u"}')).toBe(true);
+
+  // Z + W on the guest starts chaos on the host, and the host's snapshots tell the guest about it.
+  await guest.keyboard.down("z");
+  await guest.keyboard.press("w");
+  await guest.keyboard.up("z");
+  await expect.poll(() => guestFrames.some((frame) => frame.includes('"x":['))).toBe(true);
 
   await guest.close();
   await expect(page.getByText("Your opponent left the game.")).toBeVisible();

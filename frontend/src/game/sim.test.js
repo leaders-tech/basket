@@ -72,6 +72,32 @@ describe("game rules", () => {
     expect(game.cheatShot(1)).toBe(false);
   });
 
+  it("chaos shakes everything for a while, plays uwu many times, and then gives the real score back", () => {
+    const game = new Sim.Game();
+    game.score = [2, 1];
+    expect(game.startChaos()).toBe(true);
+    const shown = new Set();
+    let uwus = 0;
+    for (let i = 0; i < 60 * 9; i++) {
+      game.step();
+      uwus += game.takeEvents().filter((e) => e === "uwu-chaos").length;
+      if (game.chaos > 0) shown.add(game.shownScore().join(":"));
+    }
+    expect(game.chaos).toBe(0);
+    expect(shown.size).toBeGreaterThan(5);
+    expect(uwus).toBeGreaterThan(20);
+    expect(game.shownScore()).toBe(game.score);
+    expect(game.score[0]).toBeGreaterThanOrEqual(2);
+    expect(game.score[1]).toBeGreaterThanOrEqual(1);
+    expect(game.bodies().every(Number.isFinite)).toBe(true);
+  });
+
+  it("chaos cannot start after the match is over", () => {
+    const game = new Sim.Game();
+    game.state = "over";
+    expect(game.startChaos()).toBe(false);
+  });
+
   it("ends the match at the win score and a button press starts a new one", () => {
     const game = new Sim.Game();
     game.score = [Sim.WIN_SCORE, 2];

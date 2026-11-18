@@ -21,7 +21,13 @@ describe("key combos", () => {
     expect(comboFor({ KeyU: true, KeyZ: true }, "KeyZ")).toBe("uwu");
   });
 
+  it("starts chaos when Z and W are both down, but W alone is just the jump button", () => {
+    expect(comboFor({ KeyW: true }, "KeyW")).toBeNull();
+    expect(comboFor({ KeyZ: true, KeyW: true }, "KeyW")).toBe("chaos");
+    expect(comboFor({ KeyW: true, KeyZ: true }, "KeyZ")).toBe("chaos");
+  });
+
   it("does not fire for a key that is not part of the combo", () => {
-    expect(comboFor({ KeyZ: true, KeyC: true, KeyW: true }, "KeyW")).toBeNull();
+    expect(comboFor({ KeyZ: true, KeyC: true, KeyQ: true }, "KeyQ")).toBeNull();
   });
 });

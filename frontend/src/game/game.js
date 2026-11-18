@@ -137,6 +137,9 @@ export function startGame() {
       case 'u':
         if (mode === 'host' || mode === 'guest') uwu(false);   // the other player pressed Z + U
         break;
+      case 'x':
+        if (mode === 'host') game.startChaos();   // the guest pressed Z + W
+        break;
       case 's':
         if (mode !== 'guest') break;
         netBuf.push(m, performance.now());
@@ -162,8 +165,8 @@ export function startGame() {
     if (COMBO_KEYS[e.code]) {
       held[e.code] = true;
       var action = comboFor(held, e.code);
-      if (action === 'cheat') cheat(); else if (action === 'uwu') uwu(true);
-      return;
+      if (action === 'cheat') cheat(); else if (action === 'uwu') uwu(true); else if (action === 'chaos') chaos();
+      if (!ANY[e.code]) return;   // W is also the jump button, so it goes on to the controls below
     }
     if (mode === 'menu') { if (e.code === 'Enter' || e.code === 'Space') { startLocal('cpu'); } return; }
     if (mode === 'local') { if (KEYS0[e.code]) keys.team0 = true; if (KEYS1[e.code]) keys.team1 = true; }
@@ -181,6 +184,11 @@ export function startGame() {
   function uwu(fromMe) {
     Sfx.play('uwu');
     if (fromMe && (mode === 'host' || mode === 'guest')) send({ t: 'u' });
+  }
+  // Z + W: chaos for everyone (the host runs it, so the guest asks the host).
+  function chaos() {
+    if (mode === 'cpu' || mode === 'local' || mode === 'host') game.startChaos();
+    else if (mode === 'guest') send({ t: 'x' });
   }
   // Z + C: the ball you hold flies straight into the other team's hoop.
   function cheat() {
@@ -242,18 +250,22 @@ export function startGame() {
       // one snapshot every tick; n is the tick number, so the guest can place it on the host's timeline
       var b = game.bodies();
       for (var j = 0; j < b.length; j++) b[j] = Math.round(b[j] * 100) / 100;
-      send({ t: 's', n: tickN, r: game.round, c: game.cfg, b: b, sc: game.score, st: game.state, tm: Math.round(game.timer * 100) / 100,
+      send({ t: 's', n: tickN, r: game.round, c: game.cfg, b: b, sc: game.shownScore(), x: chaosInfo(), st: game.state, tm: Math.round(game.timer * 100) / 100,
         ls: game.lastScorer, rt: Math.round(game.roundTime * 100) / 100, h: game.holder, ev: netEvents });
       netEvents = [];
     }
   }
 
   function lerpA(a, b, t) { var d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * t; }
+  // Chaos info for drawing and for the guest: [seconds since start, seed], or 0 when there is no chaos.
+  function chaosInfo() { return game.chaos > 0 ? [Math.round(game.chaosTime * 1000) / 1000, game.chaosSeed] : 0; }
   function hostView() {
     var hints = mode === 'local' ? ['W', '↑'] : (mode === 'cpu' || mode === 'host') ? ['YOU', null] : null;
     var win = null;
     if ((mode === 'cpu' || mode === 'host') && game.state === 'over') win = game.score[0] > game.score[1] ? 'YOU WIN!' : (mode === 'cpu' ? 'COMPUTER WINS' : 'OPPONENT WINS');
-    return { L: game.L, key: 'r' + game.round + '_' + game.cfg.seed, bodies: game.bodies(), score: game.score, state: game.state, timer: game.timer,
+    var cx = chaosInfo();
+    return { L: game.L, key: 'r' + game.round + '_' + game.cfg.seed, bodies: game.bodies(), score: game.shownScore(), state: game.state, timer: game.timer,
+      chaos: cx ? { t: cx[0], seed: cx[1] } : null,
       lastScorer: game.lastScorer, roundTime: game.roundTime, holder: game.holder, hints: hints, menu: mode === 'menu', winLabel: win,
       status: null };
   }
@@ -270,9 +282,15 @@ export function startGame() {
         else bodies[k] = s.b[k] + (b2.b[k] - s.b[k]) * t;
       }
     }
+    var chaosView = null;
+    if (s.x) {
+      var ct = s.x[0];
+      if (b2 && b2.x && b2.x[1] === s.x[1]) ct += (b2.x[0] - s.x[0]) * Math.min(1, Math.max(0, pick.t));
+      chaosView = { t: ct, seed: s.x[1] };
+    }
     var key = 'r' + s.r + '_' + s.c.seed;
     if (!guestLayouts[key]) guestLayouts[key] = Sim.layout(s.c);
-    return { L: guestLayouts[key], key: key, bodies: bodies, score: s.sc, state: s.st, timer: s.tm, lastScorer: s.ls, roundTime: s.rt, holder: s.h,
+    return { L: guestLayouts[key], key: key, bodies: bodies, score: s.sc, state: s.st, chaos: chaosView, timer: s.tm, lastScorer: s.ls, roundTime: s.rt, holder: s.h,
       hints: [null, 'YOU'], winLabel: s.st === 'over' ? (s.sc[1] > s.sc[0] ? 'YOU WIN!' : 'OPPONENT WINS') : null, status: null };
   }
 

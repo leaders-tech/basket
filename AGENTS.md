@@ -21,7 +21,10 @@
     Unit tests: `sim.test.js`, `render.test.js`, `netsync.test.js`. E2E test: `frontend/tests/e2e/game.spec.ts`.
   - Secret key combos in `frontend/src/game/combos.js` (+ `combos.test.js`): Z + C is the cheat shot while your team
     holds the ball (`Game.cheatShot` in `sim.js`; the guest sends `{t: 'c'}`), Z + U plays `sounds/uwu.mp3` for both
-    players (online each side sends `{t: 'u'}` to the other).
+    players (online each side sends `{t: 'u'}` to the other), Z + W starts 8 seconds of chaos (`Game.startChaos`
+    in `sim.js`, crowd and spinning in `Renderer.chaosCrowd` / `draw` in `render.js`; the guest sends `{t: 'x'}`,
+    snapshots carry `x: [seconds, seed]`). During chaos `Game.shownScore()` returns random numbers; the real
+    `game.score` is not changed.
   - Each team's score box is on its own side (team 0 left, team 1 right).
   - Online rooms: `backend/game/rooms.py` (in-memory rooms) and `backend/game/routes.py` (public websocket
     `/ws/game`, no login). Tests: `backend/tests/test_game.py`.

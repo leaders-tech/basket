@@ -352,8 +352,15 @@ Do not copy this file. Add a new court as one more branch in background() and a 
     this.t += dt;
     this.prepare(L, v.key);
     for (i = 0; i < 2; i++) this.net[i] = Math.max(0, this.net[i] - dt);
+    var ch = v.chaos;   // { t, seed } while chaos (Z + W) is on, otherwise null
+    if (ch) px(ctx, '#000', 0, 0, W, H);   // corners that the spinning picture uncovers
     ctx.save();
     if (this.shake > 0) { this.shake -= dt; ctx.translate(Math.round((Math.random() - 0.5) * 2), Math.round((Math.random() - 0.5) * 2)); }
+    if (ch) {
+      // the whole court spins, wobbles, and zooms in and out
+      var spin = Math.sin(ch.t * 2.1) * 0.5 + ch.t * 0.9, zoom = 1 + 0.12 * Math.sin(ch.t * 5);
+      ctx.translate(W / 2, H / 2); ctx.rotate(spin); ctx.scale(zoom, zoom); ctx.translate(-W / 2, -H / 2);
+    }
     ctx.drawImage(background(L.place, W), 0, 0);
     // clouds and shark fin
     if (L.place === 'street' || L.place === 'beach') {
@@ -405,7 +412,13 @@ Do not copy this file. Add a new court as one more branch in background() and a 
       ctx.fillStyle = '#fff';
       for (i = 0; i < this.flakes.length; i++) { var fl = this.flakes[i]; fl.y += fl.v * dt; fl.x += Math.sin(fl.y * 0.06 + i) * 0.15; if (fl.y > H) { fl.y = -2; fl.x = Math.random() * W; } ctx.fillRect(Math.round(fl.x % W), Math.round(fl.y), fl.s, fl.s); }
     }
+    if (ch) this.chaosCrowd(ctx, ch, W, L);
     ctx.restore();
+    if (ch) {
+      // color flashes
+      var COLORS = ['rgba(255,0,140,0.18)', 'rgba(0,255,200,0.16)', 'rgba(255,230,0,0.16)', 'rgba(120,80,255,0.18)'];
+      ctx.fillStyle = COLORS[Math.floor(ch.t * 7) % COLORS.length]; ctx.fillRect(0, 0, W, H);
+    }
 
     if (this.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + (this.flash * 1.2).toFixed(2) + ')'; ctx.fillRect(0, 0, W, H); this.flash -= dt; }
 
@@ -419,6 +432,32 @@ Do not copy this file. Add a new court as one more branch in background() and a 
       }
     }
     if (!v.menu) this.hud(v);
+  };
+
+  // Chaos crowd: lots of extra players and balls that fly, bounce, and spin. They are only pictures (no physics),
+  // made from the chaos seed and time, so the host and the guest see the same crowd.
+  Renderer.prototype.chaosCrowd = function (ctx, ch, W, L) {
+    var r = rnd(ch.seed), i, x, y, u;
+    for (i = 0; i < 18; i++) {
+      var sp = this.spr[Math.floor(r() * 4)], vx = (r() - 0.5) * 180, x0 = r() * W, period = 0.7 + r() * 1.1, jump = 40 + r() * 100;
+      var turn = (r() - 0.5) * 14, phase = r();
+      x = (((x0 + vx * ch.t) % (W + 40)) + W + 40) % (W + 40) - 20;
+      u = (ch.t / period + phase) % 1;
+      y = GROUND - 4 * jump * u * (1 - u);
+      var a = turn * ch.t, hgt = L.chars.h;
+      draw(ctx, sp.body, x, y, a, vx < 0, 8, hgt + 1);
+      draw(ctx, sp.head, x + Math.sin(a) * (hgt + 2), y - Math.cos(a) * (hgt + 2), a * 1.5, vx < 0, 6, 7);
+    }
+    for (i = 0; i < 10; i++) {
+      var bvx = (r() - 0.5) * 240, bx0 = r() * W, bp = 0.5 + r() * 0.8, bj = 30 + r() * 110, bphase = r();
+      x = (((bx0 + bvx * ch.t) % (W + 20)) + W + 20) % (W + 20) - 10;
+      u = (ch.t / bp + bphase) % 1;
+      y = GROUND - 6 - 4 * bj * u * (1 - u);
+      draw(ctx, this.ball, x, y, ch.t * 10 + i, false, this.ball.width / 2, this.ball.height / 2);
+    }
+    var big = ptext('CHAOS!', 16, ['#ffffff', '#ffd34d', '#ff4fa3'], '#17120f', '#000');
+    var cx = W / 2 + Math.sin(ch.t * 3) * 60, cy = 40 + Math.cos(ch.t * 4.3) * 18;
+    draw(ctx, big, cx, cy, Math.sin(ch.t * 6) * 0.4, false, big.width / 2, big.height / 2);
   };
 
   function chip(ctx, x, y, w, h, fill, dark) {

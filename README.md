@@ -17,6 +17,9 @@ Secret combos (hold both keys at the same time):
 
 - **Z + C** — cheat shot: if your team holds the ball, it flies straight into the other team's hoop.
 - **Z + U** — plays an "uwu" sound. In an online game both players hear it.
+- **Z + W** — chaos for 8 seconds: the court spins, a crowd of extra players and balls flies around, players and the
+  ball get random kicks, the score jumps to random numbers, and "uwu" plays again and again. The real score comes back
+  when the chaos ends. In an online game both players see it.
 
 The game is built on the school project template described below. The pixel font is Press Start 2P (SIL Open Font License).
 

@@ -110,6 +110,9 @@ import * as pl from "planck";
     this.events = [];
     this.round = 0;
     this.slow = 0;
+    this.chaos = 0;          // seconds of chaos left (keys Z + W); it lasts across rounds
+    this.chaosTime = 0;      // seconds since chaos started
+    this.chaosSeed = 0;
     this.newRound(randomConfig(true));
   } }
 
@@ -295,7 +298,50 @@ import * as pl from "planck";
     return { x: x, y: y, vx: vx, vy: vy };
   }
 
+  // Chaos (keys Z + W): for a few seconds everything goes wild. Players and the ball get random kicks, gravity is low,
+  // the shown score jumps around, and the uwu sound plays again and again. The real score is kept and comes back after.
+  var CHAOS_TIME = 8, CHAOS_KICK = 0.35, CHAOS_UWU = 0.3, CHAOS_GRAVITY = 0.35;
+  Game.prototype.startChaos = function () {
+    if (this.state === 'over') return false;
+    this.chaos = CHAOS_TIME;
+    this.chaosTime = 0;
+    this.chaosSeed = Math.floor(Math.random() * 1e9);
+    this.chaosKick = 0;
+    this.chaosUwu = 0;
+    this.fakeScore = this.score.slice();
+    return true;
+  };
+  Game.prototype.endChaos = function () {
+    this.chaos = 0;
+    this.world.setGravity(Vec2(0, G * S));
+  };
+  // The score to show on screen: random numbers during chaos, the real score otherwise.
+  Game.prototype.shownScore = function () { return this.chaos > 0 ? this.fakeScore : this.score; };
+  Game.prototype.chaosStep = function () {
+    this.chaos -= DT;
+    this.chaosTime += DT;
+    if (this.chaos <= 0 || this.state === 'over') { this.endChaos(); return; }
+    this.world.setGravity(Vec2(0, G * S * CHAOS_GRAVITY));
+    this.chaosUwu -= DT;
+    if (this.chaosUwu <= 0) { this.chaosUwu = CHAOS_UWU; this.events.push('uwu-chaos'); }
+    this.chaosKick -= DT;
+    if (this.chaosKick > 0) return;
+    this.chaosKick = CHAOS_KICK;
+    this.fakeScore = [Math.floor(Math.random() * 100), Math.floor(Math.random() * 100)];
+    for (var i = 0; i < 4; i++) {
+      var p = this.players[i];
+      p.body.setLinearVelocity(Vec2(rand(-120, 120) * S, rand(-140, -60) * S));
+      p.body.setAngularVelocity(rand(-14, 14));
+      p.head.setAngularVelocity(rand(-20, 20));
+    }
+    if (this.holder < 0 && this.magnet < 0 && !this.cheat) {
+      this.ball.setLinearVelocity(Vec2(rand(-160, 160) * S, rand(-160, -40) * S));
+      this.ball.setAngularVelocity(rand(-20, 20));
+    }
+  };
+
   Game.prototype.step = function () {
+    if (this.chaos > 0) this.chaosStep();
     var ts = this.slow > 0 ? 0.4 : 1;
     var dt = DT * ts, i, p;
     this.roundTime += DT;
@@ -425,7 +471,7 @@ import * as pl from "planck";
           this.lastScorer = team;
           this.slow = 0.7;
           this.events.push('score');
-          if (this.score[team] >= WIN_SCORE) { this.state = 'over'; this.timer = 1.4; this.events.push('win'); }
+          if (this.score[team] >= WIN_SCORE) { this.state = 'over'; this.timer = 1.4; this.events.push('win'); this.endChaos(); }
           else { this.state = 'goal'; this.timer = 1.8; }
         }
       }

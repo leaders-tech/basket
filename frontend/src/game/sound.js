@@ -25,11 +25,12 @@ export function createSound() {
     }
     return clips[name];
   }
-  function clip(name) {
+  // rate 1 is normal speed; bigger is faster and higher, smaller is slower and lower
+  function clip(name, rate) {
     var a = ctx(); if (!a || muted) return;
     loadClip(name).then(function (buf) {
       if (muted || ac !== a) return;
-      var s = a.createBufferSource(); s.buffer = buf; s.connect(master); s.start();
+      var s = a.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate || 1; s.connect(master); s.start();
     }, function () { });
   }
   function tone(f0, f1, dur, type, vol, delay) {
@@ -68,6 +69,7 @@ export function createSound() {
       case 'redrop': tone(700, 300, 0.12, 'triangle', 0.1); break;
       case 'click': tone(880, 1200, 0.05, 'square', 0.05); break;
       case 'uwu': clip('uwu'); break;
+      case 'uwu-chaos': clip('uwu', 0.6 + Math.random() * 1.2); break;   // chaos: uwu again and again, at random pitch
     }
   }
   return { play: play, unlock: ctx, toggle: function () { muted = !muted; return muted; }, close: function () { if (ac) { try { ac.close(); } catch { } ac = null; } } };

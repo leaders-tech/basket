@@ -59,14 +59,17 @@ export default defineConfig(({ mode }) => {
     server: proxyTarget
       ? {
           proxy: {
+            // xfwd tells the backend the real browser IP address (needed for the secret game combos on Wi-Fi).
             "/api": {
               target: proxyTarget,
               changeOrigin: true,
+              xfwd: true,
             },
             "/ws": {
               target: proxyTarget,
               changeOrigin: true,
               ws: true,
+              xfwd: true,
             },
           },
         }

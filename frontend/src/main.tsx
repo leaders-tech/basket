@@ -12,7 +12,15 @@ import { AuthProvider } from "./app/auth";
 import "./index.css";
 
 if ("serviceWorker" in navigator) {
-  void import("virtual:pwa-register").then(({ registerSW }) => registerSW({ immediate: true }));
+  // Check for a new version every minute, so an open tab picks up a fresh deploy without a manual reload.
+  void import("virtual:pwa-register").then(({ registerSW }) =>
+    registerSW({
+      immediate: true,
+      onRegisteredSW(_url, registration) {
+        if (registration) setInterval(() => void registration.update(), 60_000);
+      },
+    }),
+  );
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

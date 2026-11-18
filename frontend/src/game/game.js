@@ -9,6 +9,7 @@ import { Render } from "./render.js";
 import { createSound } from "./sound.js";
 import { createSnapshotBuffer } from "./netsync.js";
 import { COMBO_KEYS, comboFor } from "./combos.js";
+import { postJson } from "../shared/api";
 
 export const SOCKET_PATH = "/ws/game";
 
@@ -164,7 +165,7 @@ export function startGame() {
     Sfx.unlock();
     if (COMBO_KEYS[e.code]) {
       held[e.code] = true;
-      var action = comboFor(held, e.code);
+      var action = combosAllowed ? comboFor(held, e.code) : null;
       if (action === 'cheat') cheat(); else if (action === 'uwu') uwu(true); else if (action === 'chaos') chaos();
       if (!ANY[e.code]) return;   // W is also the jump button, so it goes on to the controls below
     }
@@ -179,7 +180,9 @@ export function startGame() {
   });
 
   // Secret combos (see combos.js). held = combo keys that are down right now.
-  var held = {};
+  // They work only when the server says this IP address may use them (CHEAT_IPS on the backend).
+  var held = {}, combosAllowed = false;
+  postJson('/game/cheats', {}).then(function (d) { combosAllowed = !!d.allowed; }, function () { combosAllowed = false; });
   // Z + U: play the "uwu" sound here, and online tell the other player to play it too.
   function uwu(fromMe) {
     Sfx.play('uwu');
@@ -187,7 +190,7 @@ export function startGame() {
   }
   // Z + W: chaos for everyone (the host runs it, so the guest asks the host).
   function chaos() {
-    if (mode === 'cpu' || mode === 'local' || mode === 'host') game.startChaos();
+    if (mode === 'menu' || mode === 'cpu' || mode === 'local' || mode === 'host') game.startChaos();
     else if (mode === 'guest') send({ t: 'x' });
   }
   // Z + C: the ball you hold flies straight into the other team's hoop.
@@ -228,7 +231,7 @@ export function startGame() {
   // ---------- events ----------
   var currentView = null;
   function handleEvent(e) {
-    if (mode !== 'menu') Sfx.play(e);
+    if (mode !== 'menu' || e === 'uwu-chaos') Sfx.play(e);   // the menu demo is quiet, except for chaos
     if (currentView) R.onEvent(e, currentView);
   }
 

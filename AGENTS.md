@@ -24,11 +24,10 @@
     players (online each side sends `{t: 'u'}` to the other), Z + W starts 8 seconds of chaos (`Game.startChaos`
     in `sim.js`, crowd and spinning in `Renderer.chaosCrowd` / `draw` in `render.js`; the guest sends `{t: 'x'}`,
     snapshots carry `x: [seconds, seed]`). During chaos `Game.shownScore()` returns random numbers; the real
-    `game.score` is not changed. Z + W works in the main menu too.
-  - Who may use the combos: `backend/game/cheats.py` — only IPs in `CHEAT_IPS` (comma-separated; loopback is also
-    allowed outside prod). `POST /api/game/cheats` returns `{allowed, ip}` and the game ignores combos when not allowed;
-    `/ws/game` drops `c`/`u`/`x` messages from other IPs. The IP is the last `X-Forwarded-For` entry (added by Caddy on
-    tlfpaas, by the Vite proxy with `xfwd` in dev).
+    `game.score` is not changed.
+  - All combos are locked until the player presses 1 four times in the first 5 seconds of a match
+    (`createCheatUnlock` in `combos.js`, started in `startLocal` / `peer-joined` / `joined`, reset in `toMenu`).
+    It is a client-side rule only; the server does not check it.
   - Each team's score box is on its own side (team 0 left, team 1 right).
   - Online rooms: `backend/game/rooms.py` (in-memory rooms) and `backend/game/routes.py` (public websocket
     `/ws/game`, no login). Tests: `backend/tests/test_game.py`.
@@ -133,8 +132,6 @@
   - `ADMIN_PASSWORD` — the password of user `admin` (12+ characters). The backend creates `admin` on startup and resets
     its password when this secret changes.
   The backend refuses to start in prod without good values. Never print, log, or commit secret values.
-- Optional secret `CHEAT_IPS`: the IP addresses (comma-separated) that may use the secret game combos. Without it nobody
-  may use them in prod. Keep the student's IP out of git; set it only in the Secrets page.
 - Where to look when a deploy fails: the deploy log on the dashboard, runtime logs at https://logs.tlfedu.tech, and
   read-only files (including the SQLite file) at https://files.tlfedu.tech.
 - Platform rules for Docker files: https://deploy.tlfedu.tech/guides/docker/agents and `docs/tlfpaas-autodeploy.md`.

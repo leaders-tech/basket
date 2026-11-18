@@ -13,16 +13,14 @@ Hold the button: your players jump and raise an arm. Let go to shoot. The higher
 Esc or the pause button goes back to the menu. M turns the sound on and off.
 Each team's score is shown in the bottom corner on its own side.
 
-Secret combos (hold both keys at the same time). They work only for IP addresses listed in the `CHEAT_IPS` setting
-(on tlfpaas: a secret on the Secrets page, then **Redeploy now**). In local development your own computer may always use
-them. To see your IP address as the server sees it, open the game and run `fetch('/api/game/cheats', {method: 'POST'})`
-in the browser console, or ask your coding agent.
+Secret combos (hold both keys at the same time). They are locked: to unlock them, press **1** four times in the first
+5 seconds of a match. They stay unlocked until you go back to the menu.
 
 - **Z + C** — cheat shot: if your team holds the ball, it flies straight into the other team's hoop.
 - **Z + U** — plays an "uwu" sound. In an online game both players hear it.
 - **Z + W** — chaos for 8 seconds: the court spins, a crowd of extra players and balls flies around, players and the
   ball get random kicks, the score jumps to random numbers, and "uwu" plays again and again. The real score comes back
-  when the chaos ends. In an online game both players see it. It also works in the main menu.
+  when the chaos ends. In an online game both players see it.
 
 The game is built on the school project template described below. The pixel font is Press Start 2P (SIL Open Font License).
 

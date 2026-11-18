@@ -56,6 +56,15 @@ test("two players meet in an online room", async ({ page, context }) => {
   await expect(guest.getByText(`Room ${code} · you are PURPLE (right)`, { exact: false })).toBeVisible();
   await expect(page.getByText(`Room ${code} · you are GREEN (left)`, { exact: false })).toBeVisible();
 
+  // Cheats are locked at first: Z + U sends nothing.
+  await guest.keyboard.down("z");
+  await guest.keyboard.press("u");
+  await guest.keyboard.up("z");
+  // Pressing 1 four times in the first 5 seconds of the match unlocks them.
+  for (let i = 0; i < 4; i++) await guest.keyboard.press("1");
+  await expect(guest.getByText("Cheats unlocked!")).toBeVisible();
+  expect(hostFrames.some((frame) => frame.replace(/\s/g, "") === '{"t":"u"}')).toBe(false);
+
   // Z + U on the guest plays the uwu sound for both players: the host gets a "u" message.
   await guest.keyboard.down("z");
   await guest.keyboard.press("u");

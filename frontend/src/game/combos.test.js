@@ -5,7 +5,7 @@ Copy a test here when you add another combo.
 */
 
 import { describe, expect, it } from "vitest";
-import { comboFor } from "./combos.js";
+import { comboFor, createCheatUnlock } from "./combos.js";
 
 describe("key combos", () => {
   it("fires the cheat only when Z and C are both down", () => {
@@ -29,5 +29,36 @@ describe("key combos", () => {
 
   it("does not fire for a key that is not part of the combo", () => {
     expect(comboFor({ KeyZ: true, KeyC: true, KeyQ: true }, "KeyQ")).toBeNull();
+  });
+});
+
+describe("cheat unlock", () => {
+  it("unlocks after 4 presses of 1 in the first 5 seconds of a match", () => {
+    const unlock = createCheatUnlock(5000, 4);
+    unlock.start(1000);
+    expect(unlock.press(1500)).toBe(false);
+    expect(unlock.press(2000)).toBe(false);
+    expect(unlock.press(3000)).toBe(false);
+    expect(unlock.isUnlocked()).toBe(false);
+    expect(unlock.press(5900)).toBe(true);
+    expect(unlock.isUnlocked()).toBe(true);
+  });
+
+  it("stays locked when the presses come too late or before a match", () => {
+    const unlock = createCheatUnlock(5000, 4);
+    expect(unlock.press(0)).toBe(false);
+    unlock.start(0);
+    for (let i = 0; i < 3; i++) unlock.press(1000);
+    expect(unlock.press(5001)).toBe(false);
+    expect(unlock.isUnlocked()).toBe(false);
+  });
+
+  it("locks again when the player leaves the match", () => {
+    const unlock = createCheatUnlock(5000, 4);
+    unlock.start(0);
+    for (let i = 0; i < 4; i++) unlock.press(100);
+    expect(unlock.isUnlocked()).toBe(true);
+    unlock.reset();
+    expect(unlock.isUnlocked()).toBe(false);
   });
 });

@@ -8,8 +8,7 @@ import { Sim } from "./sim.js";
 import { Render } from "./render.js";
 import { createSound } from "./sound.js";
 import { createSnapshotBuffer } from "./netsync.js";
-import { COMBO_KEYS, comboFor } from "./combos.js";
-import { postJson } from "../shared/api";
+import { COMBO_KEYS, UNLOCK_KEYS, comboFor, createCheatUnlock } from "./combos.js";
 
 export const SOCKET_PATH = "/ws/game";
 
@@ -31,6 +30,8 @@ export function startGame() {
   var remoteKey = false, ws = null, roomCode = null;
   var netBuf = createSnapshotBuffer(DT * 1000), guestLayouts = {}, tickN = 0, netEvents = [];
   var hover = null, menuItems = [];
+  // Secret combos (see combos.js): locked until you press 1 four times in the first 5 seconds of a match.
+  var held = {}, cheats = createCheatUnlock(5000, 4);
 
   function panel(id) {
     ['p-online', 'p-wait', 'p-connect'].forEach(function (s) { $(s).classList.toggle('hidden', s !== id); });
@@ -48,11 +49,12 @@ export function startGame() {
     mode = m; game = new Sim.Game();
     bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
     keys.team0 = keys.team1 = keys.mine = false;
+    cheats.start(performance.now());
     hint(m === 'local' ? 'Green: W · Purple: ↑ · Esc: menu' : 'Hold ' + BUTTON + ', then let go to shoot · Esc: menu');
     Sfx.play('round');
   }
   function toMenu() {
-    closeNet(); panel(null); hint('');
+    closeNet(); panel(null); hint(''); cheats.reset();
     mode = 'menu'; game = new Sim.Game(); bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
   }
   function openOnline() {
@@ -117,12 +119,12 @@ export function startGame() {
         netFail(m.msg); if (ws) { ws.onclose = null; ws.close(); ws = null; }
         break;
       case 'peer-joined':
-        mode = 'host'; game = new Sim.Game(); remoteKey = false; panel(null);
+        mode = 'host'; game = new Sim.Game(); remoteKey = false; panel(null); cheats.start(performance.now());
         hint('Room ' + roomCode + ' · you are GREEN (left) · button: ' + BUTTON + ' · Esc: leave');
         Sfx.play('round'); toast('Your opponent joined!', 2000);
         break;
       case 'joined':
-        mode = 'guest'; roomCode = m.code; netBuf.reset(); panel(null);
+        mode = 'guest'; roomCode = m.code; netBuf.reset(); panel(null); cheats.start(performance.now());
         hint('Room ' + m.code + ' · you are PURPLE (right) · button: ' + BUTTON + ' · Esc: leave');
         toast('Joined room ' + m.code, 2000);
         break;
@@ -163,9 +165,10 @@ export function startGame() {
     if (ANY[e.code]) e.preventDefault();
     if (e.repeat || panelOpen()) return;
     Sfx.unlock();
+    if (UNLOCK_KEYS[e.code]) { if (cheats.press(performance.now())) toast('Cheats unlocked!', 1500); return; }
     if (COMBO_KEYS[e.code]) {
       held[e.code] = true;
-      var action = combosAllowed ? comboFor(held, e.code) : null;
+      var action = cheats.isUnlocked() ? comboFor(held, e.code) : null;
       if (action === 'cheat') cheat(); else if (action === 'uwu') uwu(true); else if (action === 'chaos') chaos();
       if (!ANY[e.code]) return;   // W is also the jump button, so it goes on to the controls below
     }
@@ -179,10 +182,6 @@ export function startGame() {
     else if (ANY[e.code]) setMine(false);
   });
 
-  // Secret combos (see combos.js). held = combo keys that are down right now.
-  // They work only when the server says this IP address may use them (CHEAT_IPS on the backend).
-  var held = {}, combosAllowed = false;
-  postJson('/game/cheats', {}).then(function (d) { combosAllowed = !!d.allowed; }, function () { combosAllowed = false; });
   // Z + U: play the "uwu" sound here, and online tell the other player to play it too.
   function uwu(fromMe) {
     Sfx.play('uwu');

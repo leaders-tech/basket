@@ -33,8 +33,6 @@ class Settings:
     refresh_cookie_name: str = "template_refresh"
     access_ttl_seconds: int = 2 * 60 * 60
     refresh_ttl_seconds: int = 60 * 24 * 60 * 60
-    # IP addresses that may use the secret game combos (see backend/game/cheats.py).
-    cheat_ips: frozenset[str] = frozenset()
 
     @property
     def secure_cookies(self) -> bool:
@@ -72,7 +70,6 @@ def load_settings() -> Settings:
     frontend_port = os.getenv("FRONTEND_PORT", "5101").strip()
     frontend_origin = os.getenv("FRONTEND_ORIGIN", f"http://{frontend_public_host}:{frontend_port}").rstrip("/")
     debug_logs = parse_bool_env(os.getenv("APP_DEBUG_LOGS"), default=mode != "prod")
-    cheat_ips = frozenset(ip.strip() for ip in os.getenv("CHEAT_IPS", "").split(",") if ip.strip())
     settings = Settings(
         mode=mode,
         host=host,
@@ -82,7 +79,6 @@ def load_settings() -> Settings:
         frontend_origin=frontend_origin,
         debug_logs=debug_logs,
         admin_password=admin_password,
-        cheat_ips=cheat_ips,
     )
     validate_settings(settings)
     return settings

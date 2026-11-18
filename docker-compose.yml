@@ -15,7 +15,6 @@ services:
       COOKIE_SECRET: ${COOKIE_SECRET}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
-      CHEAT_IPS: ${CHEAT_IPS}
     expose:
       - "8081"
     labels:

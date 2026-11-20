@@ -3,7 +3,10 @@ This file is the strong computer player for 1 PLAYER mode. It looks into the fut
 ideas for pressing the button in the copy, and does one that works (the game is the same every time for the same
 buttons, so the copy shows what will really happen).
 - With the ball: it tries "wait W ticks, then hold the button for N ticks" throws until one goes in.
-- Without the ball: it tries jump timings until one gets the ball for its team.
+- Without the ball: it tries jump timings until one wins the ball for its team (a steal, a block in the air, or a
+  rebound), checking early jumps first and deciding within 6 ticks.
+  (Tested: guessing what the human will do and jumping "just in case" made defense worse, so it plans with the
+  human's button as it is now and looks again every 15 ticks.)
 Edit this file when you want the computer to play differently (stronger, weaker, other ideas).
 Do not copy this file. The simple Bot in sim.js is still used for the menu demo.
 */
@@ -13,7 +16,7 @@ import { Sim } from "./sim.js";
 // Work per tick: about this many physics steps in the copy (one step is ~0.04 ms, so about 10 ms at most).
 var STEPS_PER_TICK = 260;
 
-// opts (for tuning and tests): { giveUp, grabLook } — see GIVE_UP and the look-ahead below.
+// opts (for tuning and tests): { giveUp, grabLook, grabWaits, grabHolds } — see GIVE_UP, grabIdeas, and run below.
 export function createSmartBot(team, opts) {
   opts = opts || {};
   var sandbox = new Sim.Game();
@@ -33,10 +36,11 @@ export function createSmartBot(team, opts) {
     return list;
   }
   var GIVE_UP = opts.giveUp || 24;   // ticks of holding the ball without a sure basket: then throw the best try anyway
+  var GRAB_GIVE_UP = 6;   // ticks of thinking without the ball: then do the best jump found so far
   function grabIdeas() {
     var list = [{ wait: 60, hold: 0 }];   // do nothing
-    [1, 2, 4, 6, 8, 11, 14, 18, 24].forEach(function (wait) {
-      [4, 8, 14].forEach(function (hold) { list.push({ wait: wait, hold: hold }); });
+    (opts.grabWaits || [1, 2, 4, 6, 9, 13, 18, 24]).forEach(function (wait) {
+      (opts.grabHolds || [4, 10, 16]).forEach(function (hold) { list.push({ wait: wait, hold: hold }); });
     });
     return list;
   }
@@ -77,27 +81,28 @@ export function createSmartBot(team, opts) {
     return [-near, i];
   }
 
-  function startJob(game, kind) {
+  function startJob(game, kind, otherKey) {
     // Rebuild the real game from its own save, so the copy matches it exactly (same fresh physics world).
     var state = game.saveState();
     game.loadState(state);
     job = { kind: kind, round: game.round, start: game.tick, state: state, ideas: kind === 'shoot' ? shootIdeas() : grabIdeas(),
-      next: 0, tried: [] };
+      next: 0, tried: [], otherKey: otherKey };
   }
 
   function choose(idea) { plan = { start: job.start, wait: idea.wait, hold: idea.hold, kind: job.kind }; job = null; }
 
-  function work(game, otherKey) {
+  function work(game) {
     var spent = 0, elapsed = game.tick - job.start;
     while (job.next < job.ideas.length && spent < STEPS_PER_TICK) {
       var idea = job.ideas[job.next++];
       if (idea.hold > 0 && idea.wait <= elapsed) continue;   // its first press is already in the past
-      var r = run(job.kind, job.state, idea, otherKey);
+      var r = run(job.kind, job.state, idea, job.otherKey);
       spent += r[1] + 3;
       if (r[0] > 0) { choose(idea); return; }   // a basket (or the ball for us): do it
       job.tried.push([idea, r[0]]);
     }
-    var done = job.next >= job.ideas.length, giveUp = job.kind === 'shoot' && elapsed >= GIVE_UP;
+    var done = job.next >= job.ideas.length;
+    var giveUp = elapsed >= (job.kind === 'shoot' ? GIVE_UP : GRAB_GIVE_UP);
     if (!done && !giveUp) return;   // keep thinking next tick
     // no sure thing: take the best idea that can still start
     var best = null, bestScore = -Infinity;
@@ -123,8 +128,8 @@ export function createSmartBot(team, opts) {
       else return keyAt(plan, i);
     }
     var kind = myHolder(game) ? 'shoot' : 'grab';
-    if (!job || job.kind !== kind) startJob(game, kind);
-    work(game, otherKey);
+    if (!job || job.kind !== kind) startJob(game, kind, otherKey);
+    work(game);
     if (plan) return keyAt(plan, game.tick - plan.start);
     return false;
   }

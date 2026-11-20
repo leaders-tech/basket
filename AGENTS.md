@@ -20,7 +20,11 @@
     guests (snapshots on an unreliable "fast" channel, inputs on a "sure" channel; setup via `{t: 'rtc'}` through
     `/ws/game`; public Google STUN server; falls back to the server websocket), `ticker.js` worker timer that keeps
     the host running in a hidden tab, `game.css` panels, `fonts/` the Press Start 2P pixel font (SIL Open Font License).
-    Unit tests: `sim.test.js`, `render.test.js`, `combos.test.js`, `party.test.js`.
+    Unit tests: `sim.test.js`, `render.test.js`, `combos.test.js`, `party.test.js`, `bot.test.js`.
+  - Strong computer player for 1 PLAYER mode: `frontend/src/game/bot.js` (`createSmartBot`). It looks ahead in a copy
+    of the game (`saveState` / `loadState`): with the ball it tries throw timings until one goes in, without the ball
+    it tries jump timings until one gets the ball. When it starts thinking it rebuilds the real game from its own save,
+    so the copy matches exactly. The simple `Sim.Bot` still plays the menu demo.
   - Online netcode (rollback): the host runs the real game and sends `game.saveState()` 30 times a second. A guest
     keeps its own copy (`lg` in `game.js`), loads each host state and replays its own button presses on top, so its
     player reacts at once. Guests send button changes with the tick they are meant for (`at`); the host applies them

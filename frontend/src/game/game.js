@@ -7,6 +7,7 @@ Do not copy this file. GamePage.tsx calls startGame() once and calls the returne
 import { Sim } from "./sim.js";
 import { Render } from "./render.js";
 import { createSound } from "./sound.js";
+import { createSmartBot } from "./bot.js";
 import { COMBO_KEYS, UNLOCK_KEYS, comboFor, createCheatUnlock } from "./combos.js";
 import { createPeer } from "./p2p.js";
 import { MAX_PLAYERS, addPlayer, canStart, playOrder, removePlayer, setTeam, teamCounts } from "./party.js";
@@ -26,7 +27,8 @@ export function startGame() {
   // ---------- state ----------
   var mode = 'menu';            // menu | cpu | local | lobby | host | guest
   var game = new Sim.Game();
-  var bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
+  var bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];   // the simple bots play the menu demo
+  var smartBot = null;   // the strong computer player in 1 PLAYER mode (bot.js)
   var keys = { team0: false, team1: false, mine: false };
   var remoteKey = false, ws = null, roomCode = null;
   var tickN = 0, netEvents = [];
@@ -61,6 +63,7 @@ export function startGame() {
     closeNet(); panel(null);
     mode = m; game = new Sim.Game();
     bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
+    smartBot = createSmartBot(1);
     keys.team0 = keys.team1 = keys.mine = false;
     cheats.start(performance.now());
     hint(m === 'local' ? 'Green: W · Purple: ↑ · Esc: menu' : 'Hold ' + BUTTON + ', then let go to shoot · Esc: menu');
@@ -531,7 +534,7 @@ export function startGame() {
     if (mode === 'host') applyDueInputs();
     var k0, k1;
     if (mode === 'menu' || mode === 'lobby') { k0 = bots[0].update(game); k1 = bots[1].update(game); }
-    else if (mode === 'cpu') { k0 = keys.mine; k1 = bots[1].update(game); }
+    else if (mode === 'cpu') { k0 = keys.mine; k1 = smartBot.update(game, keys.mine); }
     else if (mode === 'local') { k0 = keys.team0; k1 = keys.team1; }
     else if (mode === 'host' && party) {
       // every player has their own button; any button after the end of a match starts a rematch

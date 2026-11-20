@@ -3,7 +3,8 @@
 A one-button pixel basketball game. Two wobbly players per team, first to 5 points wins.
 After every point the court, the ball, the players, and the hoop change at random.
 
-- **1 PLAYER** — you against the computer. Button: W, ↑, Space, or click.
+- **1 PLAYER** — you against the computer. Button: W, ↑, Space, or click. The computer is very strong: it plays
+  the game forward in its head and throws only when it sees the ball going in.
 - **2 PLAYERS** — on one keyboard. Green team: W. Purple team: ↑.
 - **ONLINE** — create a room and send the 4-character code to a friend.
 - **ONLINE → Create party room** — for 2 to 8 players. Everyone types their name and joins with the code. The admin

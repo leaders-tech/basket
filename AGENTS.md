@@ -18,9 +18,15 @@
     package), `render.js` canvas drawing and on-screen text, `game.js` menu, controls, game loop and online play,
     `sound.js` sounds (generated, plus the `sounds/uwu.mp3` file), `p2p.js` direct WebRTC connection between host and
     guests (snapshots on an unreliable "fast" channel, inputs on a "sure" channel; setup via `{t: 'rtc'}` through
-    `/ws/game`; public Google STUN server; falls back to the server websocket), `netsync.js` guest snapshot buffer (smooth online play), `ticker.js` worker timer that keeps
+    `/ws/game`; public Google STUN server; falls back to the server websocket), `ticker.js` worker timer that keeps
     the host running in a hidden tab, `game.css` panels, `fonts/` the Press Start 2P pixel font (SIL Open Font License).
-    Unit tests: `sim.test.js`, `render.test.js`, `netsync.test.js`, `combos.test.js`, `party.test.js`. E2E test: `frontend/tests/e2e/game.spec.ts`.
+    Unit tests: `sim.test.js`, `render.test.js`, `combos.test.js`, `party.test.js`.
+  - Online netcode (rollback): the host runs the real game and sends `game.saveState()` 30 times a second. A guest
+    keeps its own copy (`lg` in `game.js`), loads each host state and replays its own button presses on top, so its
+    player reacts at once. Guests send button changes with the tick they are meant for (`at`); the host applies them
+    on that tick. Pings (`{t: 'ping'}`) and `sl` (slack) in snapshots keep each guest ~3 ticks ahead of the host.
+    All randomness in `sim.js` comes from the game's own seed (`Game.random`), so replays match the host.
+    `window.__wobble` exists only in dev (`import.meta.env.DEV`) for tests and debugging. E2E test: `frontend/tests/e2e/game.spec.ts`.
   - Secret key combos in `frontend/src/game/combos.js` (+ `combos.test.js`): Z + C is the cheat shot while your team
     holds the ball (`Game.cheatShot` in `sim.js`; the guest sends `{t: 'c'}`), Z + U plays `sounds/uwu.mp3` for both
     players (online each side sends `{t: 'u'}` to the other), Z + W starts 8 seconds of chaos (`Game.startChaos`

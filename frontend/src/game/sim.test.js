@@ -151,6 +151,45 @@ describe("game rules", () => {
     expect(game.holder).toBe(1);
   });
 
+  const pressFor = (teams) => (g, i) =>
+    teams[1] === 0 ? (g.setKey(0, i % 37 < 9), g.setKey(1, i % 23 < 6)) : g.setPlayerKeys(teams.map((_, k) => (i + k * 11) % 31 < 8));
+
+  it("two games loaded from the same saved state play out exactly alike with the same buttons", () => {
+    for (const teams of [[0, 0, 1, 1], [0, 1, 1, 1]]) {
+      const press = pressFor(teams);
+      const a = new Sim.Game({ teams });
+      for (let i = 0; i < 400; i++) { press(a, i); a.step(); a.takeEvents(); }
+      const saved = JSON.parse(JSON.stringify(a.saveState()));
+      const b = new Sim.Game();
+      const c = new Sim.Game();
+      b.loadState(saved);
+      c.loadState(saved);
+      expect(b.tick).toBe(a.tick);
+      for (let i = 400; i < 1000; i++) { press(b, i); press(c, i); b.step(); c.step(); }
+      expect(c.bodies()).toEqual(b.bodies());
+      expect(c.score).toEqual(b.score);
+      expect(c.round).toBe(b.round);
+    }
+  });
+
+  it("a loaded copy usually stays within a pixel of the original over a short replay (half a second)", () => {
+    // Rim bounces can still go a bit differently; the guest fixes that with the next snapshot.
+    const teams = [0, 0, 1, 1], press = pressFor(teams);
+    let close = 0;
+    for (let start = 100; start <= 1000; start += 100) {
+      const a = new Sim.Game({ teams });
+      for (let i = 0; i < start; i++) { press(a, i); a.step(); }
+      const b = new Sim.Game();
+      b.loadState(JSON.parse(JSON.stringify(a.saveState())));
+      for (let i = start; i < start + 30; i++) { press(a, i); press(b, i); a.step(); b.step(); }
+      // positions only (x, y of bodies, heads, and the ball), not angles
+      const A = a.bodies(), B = b.bodies();
+      const diff = Math.max(...A.map((x, k) => ([0, 1, 3, 4].includes(k % 7) || k === 28 || k === 29 ? Math.abs(x - B[k]) : 0)));
+      if (diff < 1) close++;
+    }
+    expect(close).toBeGreaterThanOrEqual(7);
+  });
+
   it("ends the match at the win score and a button press starts a new one", () => {
     const game = new Sim.Game();
     game.score = [Sim.WIN_SCORE, 2];

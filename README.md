@@ -13,7 +13,8 @@ After every point the court, the ball, the players, and the hoop change at rando
   To play on the same Wi-Fi, start the app with `make back-lan` and `make front-lan` (see below).
   The host's browser runs the game, so keep the host's tab open (it may be in the background).
   The browsers try to connect directly to each other (WebRTC) for less lag; "Fast direct connection" means it worked.
-  If it does not work, the game still plays through the server.
+  If it does not work, the game still plays through the server. Either way, a guest's own player reacts at once:
+  the guest's browser runs the game too and corrects it from the host.
 
 Hold the button: your players jump and raise an arm. Let go to shoot. The higher the arm, the stronger the throw.
 Esc or the pause button goes back to the menu. M turns the sound on and off.

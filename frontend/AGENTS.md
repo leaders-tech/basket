@@ -17,10 +17,11 @@
   and sends one snapshot per tick (60 per second, with tick number `n`); the guest sends only button presses and the
   cheat combo. Either player can send `{t: 'u'}` (Z + U), and the other side plays the uwu sound. The guest sends `{t: 'x'}`
   (Z + W) to start chaos on the host. The host's physics clock is driven by `ticker.js` too, so a hidden host tab does not freeze the guest.
-  The guest blends snapshots with `netsync.js`, which keeps the display delay as small as the network allows.
+  Guests predict the game themselves and correct it from the host's state (rollback, see the root `AGENTS.md`).
+  Keep every random choice in `sim.js` on `this.random()` / `this.rnd()`, never `Math.random()`, or guests drift.
 - Lag: the host opens a direct WebRTC connection to every guest (`p2p.js`, started on `peer-joined` / `p-join`).
-  Snapshots and guest button presses use it when open; otherwise they go through the server, and `netsync.js` drops
-  copies that arrive twice. `#wrap[data-link="direct"]` shows that the direct link is up (the e2e tests check it).
+  Snapshots and guest button presses use it when open; otherwise they go through the server, and guests drop
+  snapshots that arrive twice. `#wrap[data-link="direct"]` shows that the direct link is up (the e2e tests check it).
 - Party rooms: the admin's browser is the host. `party.js` holds the player list rules; `game.js` has the lobby
   (`openLobby`, `renderLobby`, `startParty`, `beginParty`). In a party game every player has their own button, and
   `bodies` holds 7 numbers per player for any number of players, then the ball.

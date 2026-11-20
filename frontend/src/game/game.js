@@ -7,7 +7,6 @@ Do not copy this file. GamePage.tsx calls startGame() once and calls the returne
 import { Sim } from "./sim.js";
 import { Render } from "./render.js";
 import { createSound } from "./sound.js";
-import { createSnapshotBuffer } from "./netsync.js";
 import { COMBO_KEYS, UNLOCK_KEYS, comboFor, createCheatUnlock } from "./combos.js";
 import { createPeer } from "./p2p.js";
 import { MAX_PLAYERS, addPlayer, canStart, playOrder, removePlayer, setTeam, teamCounts } from "./party.js";
@@ -30,7 +29,14 @@ export function startGame() {
   var bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
   var keys = { team0: false, team1: false, mine: false };
   var remoteKey = false, ws = null, roomCode = null;
-  var netBuf = createSnapshotBuffer(DT * 1000), guestLayouts = {}, tickN = 0, netEvents = [];
+  var tickN = 0, netEvents = [];
+  // Online play. The host runs the real game. Guests send each button change with the game tick it is meant for ("at").
+  // Host: guest button changes that wait for their tick, and how early each guest's pings arrive ("slack").
+  var inputQueue = [], slacks = {};
+  // Guest: its own copy of the game (lg). On every host snapshot it loads the host's state and replays its own button
+  // presses on top, so its own player reacts at once. corr smooths small jumps when the host's state differs.
+  var lg = null, ownHist = [], lastSnapTick = -1, pendingSnap = null, snapKeys = null, corr = null;
+  var skew = 0, lastPingAt = 0, pingSeq = 0, lastSlackSeq = -1;
   var hover = null, menuItems = [];
   // Secret combos (see combos.js): locked until you press 1 four times in the first 5 seconds of a match.
   var held = {}, cheats = createCheatUnlock(5000, 4);
@@ -215,7 +221,7 @@ export function startGame() {
   function closeNet() {
     closePeers();
     if (ws) { var w = ws; ws = null; try { w.onclose = null; w.close(); } catch { } }
-    roomCode = null; netBuf.reset(); remoteKey = false;
+    roomCode = null; remoteKey = false; resetNet();
   }
   function connect(onOpen) {
     closeNet(); panel('p-connect');
@@ -278,7 +284,7 @@ export function startGame() {
       case 'start':
         if (mode !== 'lobby' || !party || party.host) break;
         beginParty(m.players);
-        mode = 'guest'; netBuf.reset();
+        mode = 'guest'; resetNet();
         break;
       case 'joined':
         if (m.party) {
@@ -287,7 +293,7 @@ export function startGame() {
           openLobby();
           break;
         }
-        mode = 'guest'; roomCode = m.code; netBuf.reset(); panel(null); cheats.start(performance.now());
+        mode = 'guest'; roomCode = m.code; resetNet(); panel(null); cheats.start(performance.now());
         hint('Room ' + m.code + ' · you are PURPLE (right) · button: ' + BUTTON + ' · Esc: leave');
         toast('Joined room ' + m.code, 2000);
         break;
@@ -296,8 +302,11 @@ export function startGame() {
         toMenu(); toast(wasParty ? 'The admin left the room.' : 'Your opponent left the game.', 4000);
         break;
       case 'i':
-        if (mode === 'host' && party) remoteKeys[m.from] = !!m.d;
-        else if (mode === 'host') remoteKey = !!m.d;
+        if (mode === 'host') queueInput(party ? m.from : 'duo', !!m.d, m.at);
+        break;
+      case 'ping':
+        // how many ticks early this guest's message arrived; the guest uses it to stay a little ahead of the host
+        if (mode === 'host') slacks[party ? m.from : 'duo'] = [m.q, m.at - game.tick];
         break;
       case 'c':
         // a guest pressed the cheat combo: shoot for their team
@@ -320,9 +329,16 @@ export function startGame() {
         else if (!party || m.to === party.myId) { var hp = guestPeer(); if (hp) hp.signal(m.d); }
         break;
       case 's':
-        if (mode !== 'guest') break;
-        if (!netBuf.push(m, performance.now())) break;   // an old or repeated snapshot
-        if (m.ev) for (var i = 0; i < m.ev.length; i++) handleEvent(m.ev[i]);
+        if (mode !== 'guest' || m.st.tick <= lastSnapTick) break;   // an old or repeated snapshot
+        lastSnapTick = m.st.tick;
+        pendingSnap = m;
+        var mySlack = m.sl && m.sl[party ? party.myId : 'duo'];
+        if (mySlack && mySlack[0] !== lastSlackSeq) {
+          lastSlackSeq = mySlack[0];
+          skew += Math.max(-3, Math.min(6, TARGET_SLACK - mySlack[1]));
+        }
+        // the guest's own copy makes most sounds itself; only host-side surprises come from here
+        if (m.ev) for (var i = 0; i < m.ev.length; i++) if (m.ev[i] === 'stop') handleEvent(m.ev[i]);
         break;
     }
   }
@@ -332,7 +348,10 @@ export function startGame() {
   function setMine(down) {
     if (keys.mine === down) return;
     keys.mine = down;
-    if (mode === 'guest') sendToHost({ t: 'i', d: down ? 1 : 0 });
+    if (mode === 'guest' && lg) {
+      ownHist.push({ at: lg.tick, d: down });
+      sendToHost({ t: 'i', d: down ? 1 : 0, at: lg.tick });
+    }
   }
   function panelOpen() { return !$('panels').classList.contains('hidden'); }
   on(window, 'keydown', function (e) {
@@ -422,9 +441,94 @@ export function startGame() {
     if (currentView) R.onEvent(e, currentView);
   }
 
+  // ---------- online: host input timing ----------
+  function applyInput(who, down) { if (who === 'duo') remoteKey = down; else remoteKeys[who] = down; }
+  function queueInput(who, down, at) {
+    // late (or far too early) button changes count right away
+    if (typeof at !== 'number' || at <= game.tick || at > game.tick + 180) applyInput(who, down);
+    else inputQueue.push({ at: at, who: who, d: down });
+  }
+  function applyDueInputs() {
+    inputQueue = inputQueue.filter(function (q) { if (q.at > game.tick) return true; applyInput(q.who, q.d); return false; });
+  }
+
+  // ---------- online: guest prediction ----------
+  var TARGET_SLACK = 3, START_LEAD = 6, MAX_REPLAY = 90;
+  function resetNet() {
+    lg = null; ownHist = []; lastSnapTick = -1; pendingSnap = null; snapKeys = null; corr = null;
+    skew = 0; lastSlackSeq = -1; inputQueue = []; slacks = {};
+  }
+  function ownKeyAt(t) {
+    var d = false;
+    for (var i = 0; i < ownHist.length && ownHist[i].at <= t; i++) d = ownHist[i].d;
+    return d;
+  }
+  // Set every player's button in the guest copy for the step at tick t, the same way the host does.
+  function setGuestKeys(t) {
+    var own = ownKeyAt(t);
+    if (party) {
+      var pk = (snapKeys.pkeys || []).slice();
+      pk[party.myIdx] = own;
+      lg.setPlayerKeys(pk);
+      lg.setKey(0, pk.some(Boolean)); lg.setKey(1, false);
+    } else {
+      lg.setKey(0, !!snapKeys.keys[0]); lg.setKey(1, own);
+    }
+  }
+  function stepGuest(playEvents) {
+    setGuestKeys(lg.tick);
+    lg.step();
+    var ev = lg.takeEvents();
+    if (playEvents) for (var i = 0; i < ev.length; i++) handleEvent(ev[i]);
+  }
+  // Load the newest host snapshot and replay our own button presses up to where we were.
+  function rollback(m) {
+    var st = m.st;
+    snapKeys = { keys: st.keys, pkeys: st.pkeys };
+    if (!lg) {
+      lg = new Sim.Game({ teams: st.teams });
+      lg.loadState(st);
+      while (lg.tick < st.tick + START_LEAD) stepGuest(false);
+      return;
+    }
+    // normally we replay up to where we already were; if we fell behind the host (hidden tab), jump ahead again
+    var target = lg.tick > st.tick ? Math.min(lg.tick, st.tick + MAX_REPLAY) : st.tick + START_LEAD;
+    var shown = guestBodies(), round = lg.round;
+    lg.loadState(st);
+    while (lg.tick < target) stepGuest(false);
+    // keep showing where things were and slide them to the new place over a few frames
+    var now = lg.bodies(), ballAngle = now.length - 1;
+    corr = null;
+    if (lg.round === round && shown.length === now.length) {
+      corr = shown.map(function (x, k) {
+        var d = x - now[k];
+        if (k === ballAngle || (k < ballAngle - 2 && (k % 7 === 2 || k % 7 === 5))) d = Math.atan2(Math.sin(d), Math.cos(d));   // angles
+        return Math.abs(d) > 40 ? 0 : d;   // a big jump (new ball, teleport) is shown at once
+      });
+    }
+    var keep = lg.tick - 30;
+    while (ownHist.length > 1 && ownHist[1].at <= keep) ownHist.shift();
+  }
+  function guestTick() {
+    if (pendingSnap) { rollback(pendingSnap); pendingSnap = null; }
+    if (!lg) return;
+    var now = performance.now();
+    if (now - lastPingAt > 250) { lastPingAt = now; sendToHost({ t: 'ping', at: lg.tick, q: ++pingSeq }); }
+    // stay about TARGET_SLACK ticks ahead of the host: sometimes take an extra step, sometimes skip one
+    if (skew < 0) { skew++; return; }
+    stepGuest(true);
+    if (skew > 0) { skew--; stepGuest(true); }
+  }
+  function guestBodies() {
+    var b = lg.bodies();
+    if (corr) for (var k = 0; k < b.length; k++) b[k] += corr[k] || 0;
+    return b;
+  }
+
   // ---------- simulation ----------
   function tick() {
-    if (mode === 'guest') return;
+    if (mode === 'guest') { guestTick(); return; }
+    if (mode === 'host') applyDueInputs();
     var k0, k1;
     if (mode === 'menu' || mode === 'lobby') { k0 = bots[0].update(game); k1 = bots[1].update(game); }
     else if (mode === 'cpu') { k0 = keys.mine; k1 = bots[1].update(game); }
@@ -442,19 +546,15 @@ export function startGame() {
     for (var i = 0; i < ev.length; i++) { handleEvent(ev[i]); if (mode === 'host') netEvents.push(ev[i]); }
     if ((mode === 'menu' || mode === 'lobby') && game.state === 'over') game = new Sim.Game();
     tickN++;
-    if (mode === 'host') {
-      // one snapshot every tick; n is the tick number, so the guest can place it on the host's timeline
-      var b = game.bodies();
-      for (var j = 0; j < b.length; j++) b[j] = Math.round(b[j] * 100) / 100;
-      sendSnapshot({ t: 's', n: tickN, r: game.round, c: game.cfg, b: b, sc: game.shownScore(), x: chaosInfo(), st: game.state, tm: Math.round(game.timer * 100) / 100,
-        ls: game.lastScorer, rt: Math.round(game.roundTime * 100) / 100, h: game.holder, ev: netEvents });
+    if (mode === 'host' && tickN % 2 === 0) {
+      // 30 times a second: the whole game state, so guests can replay from it
+      sendSnapshot({ t: 's', st: game.saveState(), sl: slacks, ev: netEvents });
       netEvents = [];
     }
   }
 
-  function lerpA(a, b, t) { var d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * t; }
-  // Chaos info for drawing and for the guest: [seconds since start, seed], or 0 when there is no chaos.
-  function chaosInfo() { return game.chaos > 0 ? [Math.round(game.chaosTime * 1000) / 1000, game.chaosSeed] : 0; }
+  // Chaos info for drawing: { t: seconds since start, seed }, or null when there is no chaos.
+  function chaosInfo(g) { return g.chaos > 0 ? { t: g.chaosTime, seed: g.chaosSeed } : null; }
   // One label (or null) per player, shown over them at the start of each round.
   function playerHints(teams) {
     if (party) return teams.map(function (t, i) { return i === party.myIdx ? 'YOU' : null; });
@@ -467,42 +567,23 @@ export function startGame() {
     var mine = teams[party.myIdx];
     return score[mine] > score[1 - mine] ? 'YOUR TEAM WINS!' : 'YOUR TEAM LOST';
   }
-  function hostView() {
-    var hints = playerHints(game.teams);
+  // What to draw for game g (the real game, or the guest's copy) with these body positions.
+  function gameView(g, bodies) {
     var win = null;
-    if (party && game.state === 'over') win = partyWinLabel(game.teams, game.score);
-    else if ((mode === 'cpu' || mode === 'host') && game.state === 'over') win = game.score[0] > game.score[1] ? 'YOU WIN!' : (mode === 'cpu' ? 'COMPUTER WINS' : 'OPPONENT WINS');
-    var cx = chaosInfo();
-    return { L: game.L, key: 'r' + game.round + '_' + game.cfg.seed, bodies: game.bodies(), score: game.shownScore(), state: game.state, timer: game.timer,
-      chaos: cx ? { t: cx[0], seed: cx[1] } : null,
-      lastScorer: game.lastScorer, roundTime: game.roundTime, holder: game.holder, hints: hints, menu: mode === 'menu' || mode === 'lobby', winLabel: win,
-      me: party && mode === 'host' ? party.myIdx : -1,
-      status: null };
+    if (g.state === 'over') {
+      if (party) win = partyWinLabel(g.teams, g.score);
+      else if (mode === 'guest') win = g.score[1] > g.score[0] ? 'YOU WIN!' : 'OPPONENT WINS';
+      else if (mode === 'cpu' || mode === 'host') win = g.score[0] > g.score[1] ? 'YOU WIN!' : (mode === 'cpu' ? 'COMPUTER WINS' : 'OPPONENT WINS');
+    }
+    return { L: g.L, key: 'r' + g.round + '_' + g.cfg.seed, bodies: bodies, score: g.shownScore(), state: g.state, timer: g.timer,
+      chaos: chaosInfo(g), lastScorer: g.lastScorer, roundTime: g.roundTime, holder: g.holder, hints: playerHints(g.teams),
+      menu: mode === 'menu' || mode === 'lobby', winLabel: win, me: party && (mode === 'host' || mode === 'guest') ? party.myIdx : -1, status: null };
   }
+  function hostView() { return gameView(game, game.bodies()); }
   function guestView() {
-    var pick = netBuf.sample(performance.now());
-    if (!pick) return null;
-    var s = pick.a, b2 = pick.b, bodies = s.b, teams = s.c.teams || [0, 0, 1, 1], bi = teams.length * 7;
-    if (b2 && b2.r === s.r) {
-      var t = Math.min(1, Math.max(0, pick.t));
-      bodies = new Array(s.b.length);
-      for (var k = 0; k < s.b.length; k++) {
-        var slot = k < bi ? k % 7 : (k - bi) + 7;
-        if (slot === 2 || slot === 5 || slot === 9) bodies[k] = lerpA(s.b[k], b2.b[k], t);
-        else bodies[k] = s.b[k] + (b2.b[k] - s.b[k]) * t;
-      }
-    }
-    var chaosView = null;
-    if (s.x) {
-      var ct = s.x[0];
-      if (b2 && b2.x && b2.x[1] === s.x[1]) ct += (b2.x[0] - s.x[0]) * Math.min(1, Math.max(0, pick.t));
-      chaosView = { t: ct, seed: s.x[1] };
-    }
-    var key = 'r' + s.r + '_' + s.c.seed;
-    if (!guestLayouts[key]) guestLayouts[key] = Sim.layout(s.c);
-    return { L: guestLayouts[key], key: key, bodies: bodies, score: s.sc, state: s.st, chaos: chaosView, timer: s.tm, lastScorer: s.ls, roundTime: s.rt, holder: s.h,
-      hints: playerHints(teams), me: party ? party.myIdx : -1, status: null,
-      winLabel: s.st !== 'over' ? null : party ? partyWinLabel(teams, s.sc) : (s.sc[1] > s.sc[0] ? 'YOU WIN!' : 'OPPONENT WINS') };
+    if (!lg) return null;
+    if (corr) for (var k = 0; k < corr.length; k++) corr[k] *= 0.8;   // slide away the last correction
+    return gameView(lg, guestBodies());
   }
 
   // Menu buttons in canvas pixels. They are stacked in one column so labels never overlap.
@@ -570,6 +651,9 @@ export function startGame() {
     resize();
     rafId = requestAnimationFrame(frame);
   });
+
+  // Development only: lets tests and debugging look inside the running game (never in the built app).
+  if (import.meta.env.DEV) window.__wobble = { get mode() { return mode; }, get game() { return game; }, get guestGame() { return lg; }, get party() { return party; } };
 
   return function stop() {
     stopped = true;

@@ -280,6 +280,7 @@ Do not copy this file. Add a new court as one more branch in background() and a 
     this.flakes = []; for (var i = 0; i < 70; i++) this.flakes.push({ x: Math.random() * 400, y: Math.random() * H, v: 8 + Math.random() * 14, s: Math.random() < 0.25 ? 2 : 1 });
   } }
   Renderer.prototype.resize = function (W) {
+    if (!isFinite(W)) W = 290;   // a tab opened in the background can report a 0 x 0 window
     W = Math.max(290, Math.min(420, Math.round(W)));
     if (W !== this.W || this.canvas.width !== W) { this.W = W; this.canvas.width = W; this.canvas.height = H; }
     this.ctx.imageSmoothingEnabled = false;
@@ -288,14 +289,14 @@ Do not copy this file. Add a new court as one more branch in background() and a 
   Renderer.prototype.prepare = function (L, key) {
     if (this.key === key) return;
     this.key = key;
-    this.spr = [0, 1, 2, 3].map(function (i) {
+    this.spr = L.teams.map(function (team, i) {
       var look = L.looks[i];
-      return { body: bodySprite(i < 2 ? 0 : 1, look, L.chars.h), head: headSprite(look), arm: armSprite(look, L.chars.arm) };
+      return { body: bodySprite(team, look, L.chars.h), head: headSprite(look), arm: armSprite(look, L.chars.arm) };
     });
     this.ball = ballSprite(L.ballKind, L.ball.r);
   };
   Renderer.prototype.onEvent = function (e, v) {
-    if (e === 'score' && v) { this.net[v.bodies[28] > 145 ? 1 : 0] = 0.4; this.flash = 0.25; this.shake = 0.2; }
+    if (e === 'score' && v) { this.net[v.bodies[v.L.teams.length * 7] > 145 ? 1 : 0] = 0.4; this.flash = 0.25; this.shake = 0.2; }
   };
 
   Renderer.prototype.hoop = function (ctx, h, front, ox) {
@@ -378,19 +379,19 @@ Do not copy this file. Add a new court as one more branch in background() and a 
 
     // shadows
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    for (i = 0; i < 4; i++) {
+    // bodies: 7 numbers per player, then the ball (x, y, angle) at index bi
+    var n = L.teams.length, bi = n * 7;
+    for (i = 0; i < n; i++) {
       var sc = Math.min(1, Math.max(0.2, 1 - (GROUND - b[i * 7 + 1]) / 150));
       var sw = Math.round(12 * sc);
       ctx.fillRect(Math.round(b[i * 7] + ox - sw / 2), GROUND, sw, 2);
     }
-    var bsc = Math.min(1, Math.max(0.2, 1 - (GROUND - b[29]) / 150)), bw = Math.round(L.ball.r * 2 * bsc);
-    ctx.fillRect(Math.round(b[28] + ox - bw / 2), GROUND, bw, 2);
+    var bsc = Math.min(1, Math.max(0.2, 1 - (GROUND - b[bi + 1]) / 150)), bw = Math.round(L.ball.r * 2 * bsc);
+    ctx.fillRect(Math.round(b[bi] + ox - bw / 2), GROUND, bw, 2);
 
-    // players (far players first)
-    var order = [0, 2, 1, 3];
-    for (var k = 0; k < 4; k++) {
-      i = order[k];
-      var o = i * 7, flip = i >= 2, sp = this.spr[i], hgt = L.chars.h;
+    // players
+    for (i = 0; i < n; i++) {
+      var o = i * 7, flip = L.teams[i] === 1, sp = this.spr[i], hgt = L.chars.h;
       var a = b[o + 2], f = flip ? -1 : 1, sxl = -f * 3, syl = -(hgt - 5);
       var shx = b[o] + sxl * Math.cos(a) - syl * Math.sin(a), shy = b[o + 1] + sxl * Math.sin(a) + syl * Math.cos(a);
       sp.shoulder = [shx + ox, shy];
@@ -401,9 +402,9 @@ Do not copy this file. Add a new court as one more branch in background() and a 
       if (v.holder !== i && raised) draw(ctx, sp.arm, shx + ox, shy, b[o + 6] * Math.PI / 180, false, 2, 2);
     }
     // ball
-    draw(ctx, this.ball, b[28] + ox, b[29], b[30], false, this.ball.width / 2, this.ball.height / 2);
+    draw(ctx, this.ball, b[bi] + ox, b[bi + 1], b[bi + 2], false, this.ball.width / 2, this.ball.height / 2);
     if (v.holder >= 0) { var ho = v.holder * 7, s2 = this.spr[v.holder]; draw(ctx, s2.arm, s2.shoulder[0], s2.shoulder[1], b[ho + 6] * Math.PI / 180, false, 2, 2); }
-    if (b[29] < -4) { var ax = Math.round(b[28] + ox); px(ctx, '#fff', ax, 2, 1, 1); px(ctx, '#fff', ax - 1, 3, 3, 1); px(ctx, '#fff', ax - 2, 4, 5, 1); }
+    if (b[bi + 1] < -4) { var ax = Math.round(b[bi] + ox); px(ctx, '#fff', ax, 2, 1, 1); px(ctx, '#fff', ax - 1, 3, 3, 1); px(ctx, '#fff', ax - 2, 4, 5, 1); }
 
     this.hoop(ctx, L.hoops[0], true, ox);
     this.hoop(ctx, L.hoops[1], true, ox);
@@ -422,13 +423,15 @@ Do not copy this file. Add a new court as one more branch in background() and a 
 
     if (this.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + (this.flash * 1.2).toFixed(2) + ')'; ctx.fillRect(0, 0, W, H); this.flash -= dt; }
 
-    // labels over the players at the start of a round
-    if (v.hints && v.roundTime < 3 && v.state === 'play' && Math.floor(v.roundTime * 4) % 2 === 0) {
-      for (i = 0; i < 4; i++) {
-        var hint = v.hints[i < 2 ? 0 : 1]; if (!hint) continue;
-        var hx = b[i * 7 + 3] + ox, hy = b[i * 7 + 4] - 18;
-        text(ctx, hint, 8, hx, hy - 9, '#ffffff', TEAM[i < 2 ? 0 : 1].uiD);
-        px(ctx, TEAM[i < 2 ? 0 : 1].ui, Math.round(hx) - 2, Math.round(hy) + 1, 5, 1); px(ctx, TEAM[i < 2 ? 0 : 1].ui, Math.round(hx) - 1, Math.round(hy) + 2, 3, 1); px(ctx, TEAM[i < 2 ? 0 : 1].ui, Math.round(hx), Math.round(hy) + 3, 1, 1);
+    // labels over the players at the start of a round (v.hints has one label or null per player)
+    var showHints = v.hints && v.roundTime < 3 && v.state === 'play' && Math.floor(v.roundTime * 4) % 2 === 0;
+    for (i = 0; i < n; i++) {
+      var hint = showHints ? v.hints[i] : null, T = TEAM[L.teams[i]];
+      var hx = b[i * 7 + 3] + ox, hy = b[i * 7 + 4] - 18;
+      if (hint) text(ctx, hint, 8, hx, hy - 9, '#ffffff', T.uiD);
+      // the little arrow: during the label blink, and always over your own player in a party room
+      if (hint || (v.me === i && v.state !== 'over')) {
+        px(ctx, T.ui, Math.round(hx) - 2, Math.round(hy) + 1, 5, 1); px(ctx, T.ui, Math.round(hx) - 1, Math.round(hy) + 2, 3, 1); px(ctx, T.ui, Math.round(hx), Math.round(hy) + 3, 1, 1);
       }
     }
     if (!v.menu) this.hud(v);
@@ -439,7 +442,7 @@ Do not copy this file. Add a new court as one more branch in background() and a 
   Renderer.prototype.chaosCrowd = function (ctx, ch, W, L) {
     var r = rnd(ch.seed), i, x, y, u;
     for (i = 0; i < 18; i++) {
-      var sp = this.spr[Math.floor(r() * 4)], vx = (r() - 0.5) * 180, x0 = r() * W, period = 0.7 + r() * 1.1, jump = 40 + r() * 100;
+      var sp = this.spr[Math.floor(r() * this.spr.length)], vx = (r() - 0.5) * 180, x0 = r() * W, period = 0.7 + r() * 1.1, jump = 40 + r() * 100;
       var turn = (r() - 0.5) * 14, phase = r();
       x = (((x0 + vx * ch.t) % (W + 40)) + W + 40) % (W + 40) - 20;
       u = (ch.t / period + phase) % 1;

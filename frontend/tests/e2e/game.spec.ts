@@ -1,5 +1,6 @@
 /*
-This file checks the game in a real browser: the menu starts a match, and two players meet in an online room.
+This file checks the game in a real browser: the menu starts a match, two players meet in an online room,
+and four players play a party room with uneven teams.
 Edit this file when the menu buttons, the online panels, or the /ws/game messages change.
 Copy a test pattern here when you add another game flow.
 */
@@ -79,4 +80,71 @@ test("two players meet in an online room", async ({ page, context }) => {
 
   await guest.close();
   await expect(page.getByText("Your opponent left the game.")).toBeVisible();
+});
+
+test("party room: the admin puts four players into teams 1 against 3 and starts", async ({ page, context }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  const hostFrames: string[] = [];
+  page.on("websocket", (socket) => socket.on("framereceived", (frame) => hostFrames.push(String(frame.payload))));
+
+  await openGame(page);
+  await clickMenu(page, "ONLINE");
+  await page.getByRole("button", { name: "Create party room" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Type your name first.");
+  await page.getByLabel("Your name").fill("Admin");
+  await page.getByRole("button", { name: "Create party room" }).click();
+  await expect(page.getByRole("heading", { name: "Party room" })).toBeVisible();
+  const code = (await page.locator("#party-code").textContent()) ?? "";
+  expect(code).toMatch(/^[A-Z2-9]{4}$/);
+  await expect(page.getByRole("button", { name: "Start game" })).toBeDisabled();
+
+  const guests: Page[] = [];
+  for (const name of ["Ann", "Bob", "Cid"]) {
+    const guest = await context.newPage();
+    guest.on("pageerror", (error) => pageErrors.push(error.message));
+    await openGame(guest);
+    await clickMenu(guest, "ONLINE");
+    await guest.getByLabel("Your name").fill(name);
+    await guest.getByRole("textbox", { name: "Room code" }).fill(code);
+    await guest.getByRole("button", { name: "Join" }).click();
+    await expect(guest.getByRole("heading", { name: "Party room" })).toBeVisible();
+    await expect(page.getByRole("list", { name: "Players" }).getByText(name)).toBeVisible();
+    guests.push(guest);
+  }
+  // new players go to the smaller team: Admin GREEN, Ann PURPLE, Bob GREEN, Cid PURPLE
+  await expect(page.getByText("4 / 8 players · GREEN 2 · PURPLE 2")).toBeVisible();
+  await expect(guests[2].getByText("Waiting for the admin to start the game.")).toBeVisible();
+
+  // the admin moves Bob to PURPLE: 1 against 3, and the guests see it too
+  await page.getByRole("button", { name: "Put Bob in PURPLE" }).click();
+  await expect(page.getByText("4 / 8 players · GREEN 1 · PURPLE 3")).toBeVisible();
+  await expect(guests[0].getByText("4 / 8 players · GREEN 1 · PURPLE 3")).toBeVisible();
+
+  await page.getByRole("button", { name: "Start game" }).click();
+  await expect(page.getByText(`Room ${code} · you are GREEN (left)`, { exact: false })).toBeVisible();
+  for (const guest of guests) {
+    await expect(guest.getByText(`Room ${code} · you are PURPLE (right)`, { exact: false })).toBeVisible();
+  }
+
+  // Bob's button press reaches the admin with Bob's id (player 2)
+  await guests[1].keyboard.down("Space");
+  await expect.poll(() => hostFrames.some((f) => f.replace(/\s/g, "") === '{"t":"i","d":1,"from":2}')).toBe(true);
+  await guests[1].keyboard.up("Space");
+
+  // nobody can join after the start
+  const late = await context.newPage();
+  await openGame(late);
+  await clickMenu(late, "ONLINE");
+  await late.getByLabel("Your name").fill("Late");
+  await late.getByRole("textbox", { name: "Room code" }).fill(code);
+  await late.getByRole("button", { name: "Join" }).click();
+  await expect(late.getByRole("alert")).toHaveText("This game has already started.");
+
+  // a guest leaves: the game goes on for the others
+  await guests[0].close();
+  await expect(page.getByText("Ann left the game.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(guests[1].getByText("The admin left the room.")).toBeVisible();
+  expect(pageErrors).toEqual([]);
 });

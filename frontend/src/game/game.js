@@ -9,6 +9,7 @@ import { Render } from "./render.js";
 import { createSound } from "./sound.js";
 import { createSnapshotBuffer } from "./netsync.js";
 import { COMBO_KEYS, UNLOCK_KEYS, comboFor, createCheatUnlock } from "./combos.js";
+import { MAX_PLAYERS, addPlayer, canStart, playOrder, removePlayer, setTeam, teamCounts } from "./party.js";
 
 export const SOCKET_PATH = "/ws/game";
 
@@ -23,7 +24,7 @@ export function startGame() {
   function on(target, type, fn, extra) { target.addEventListener(type, fn, Object.assign({}, extra || {}, opt)); }
 
   // ---------- state ----------
-  var mode = 'menu';            // menu | cpu | local | host | guest
+  var mode = 'menu';            // menu | cpu | local | lobby | host | guest
   var game = new Sim.Game();
   var bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
   var keys = { team0: false, team1: false, mine: false };
@@ -32,9 +33,12 @@ export function startGame() {
   var hover = null, menuItems = [];
   // Secret combos (see combos.js): locked until you press 1 four times in the first 5 seconds of a match.
   var held = {}, cheats = createCheatUnlock(5000, 4);
+  // Party room (3+ players): null in other modes.
+  // { host, myId, roster: [{ id, name, team }], ids: player id of every game player, myIdx: my game player }
+  var party = null, remoteKeys = {};
 
   function panel(id) {
-    ['p-online', 'p-wait', 'p-connect'].forEach(function (s) { $(s).classList.toggle('hidden', s !== id); });
+    ['p-online', 'p-wait', 'p-party', 'p-connect'].forEach(function (s) { $(s).classList.toggle('hidden', s !== id); });
     $('panels').classList.toggle('hidden', !id);
   }
   function toast(text, ms) {
@@ -54,16 +58,31 @@ export function startGame() {
     Sfx.play('round');
   }
   function toMenu() {
-    closeNet(); panel(null); hint(''); cheats.reset();
+    closeNet(); panel(null); hint(''); cheats.reset(); party = null;
     mode = 'menu'; game = new Sim.Game(); bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
   }
   function openOnline() {
     $('net-err').textContent = ''; $('code-in').value = '';
+    try { $('name-in').value = localStorage.getItem('wobble-name') || ''; } catch { }
     panel('p-online');
-    setTimeout(function () { if (!stopped) $('code-in').focus(); }, 50);
+    setTimeout(function () { if (!stopped) $(($('name-in').value ? 'code-in' : 'name-in')).focus(); }, 50);
+  }
+  function myName() {
+    var name = $('name-in').value.trim();
+    try { localStorage.setItem('wobble-name', name); } catch { }
+    return name;
   }
 
   on($('b-create'), 'click', function () { Sfx.play('click'); connect(function () { send({ t: 'create' }); }); });
+  on($('b-party'), 'click', function () {
+    Sfx.play('click');
+    var name = myName();
+    if (!name) { $('net-err').textContent = 'Type your name first.'; $('name-in').focus(); return; }
+    connect(function () { send({ t: 'create-party', name: name }); });
+  });
+  on($('b-party-start'), 'click', function () { Sfx.play('click'); startParty(); });
+  on($('b-party-leave'), 'click', function () { Sfx.play('click'); toMenu(); });
+  on($('name-in'), 'keydown', function (e) { e.stopPropagation(); if (e.key === 'Escape') panel(null); });
   on($('b-join'), 'click', function () { Sfx.play('click'); joinByInput(); });
   on($('b-back'), 'click', function () { Sfx.play('click'); panel(null); });
   on($('b-cancel'), 'click', function () { Sfx.play('click'); toMenu(); });
@@ -80,7 +99,79 @@ export function startGame() {
   function joinByInput() {
     var code = $('code-in').value.trim().toUpperCase();
     if (code.length !== 4) { $('net-err').textContent = 'The code has 4 characters.'; return; }
-    connect(function () { send({ t: 'join', code: code }); });
+    var name = myName();
+    connect(function () { send({ t: 'join', code: code, name: name }); });
+  }
+
+  // ---------- party room ----------
+  function teamOfId(id) {
+    var idx = party.ids.indexOf(id);
+    return idx >= 0 ? game.teams[idx] : 1;
+  }
+  function openLobby() {
+    mode = 'lobby';
+    var tiles = $('party-code'); tiles.innerHTML = '';
+    roomCode.split('').forEach(function (ch) { var s = document.createElement('span'); s.textContent = ch; tiles.appendChild(s); });
+    $('party-addr').textContent = location.host;
+    renderLobby();
+    panel('p-party');
+  }
+  // The admin changed the list: show it and send it to everyone.
+  function lobbyChanged() { renderLobby(); send({ t: 'lobby', players: party.roster }); }
+  function renderLobby() {
+    var list = $('party-list'), counts = teamCounts(party.roster);
+    list.innerHTML = '';
+    party.roster.forEach(function (p) {
+      var li = document.createElement('li'), name = document.createElement('span');
+      name.className = 'pname'; name.textContent = p.name;
+      var tags = [];
+      if (p.id === 0) tags.push('admin');
+      if (p.id === party.myId) tags.push('you');
+      if (tags.length) { var small = document.createElement('small'); small.textContent = ' (' + tags.join(', ') + ')'; name.appendChild(small); }
+      li.appendChild(name);
+      if (party.host) {
+        [['GREEN', 0, 'g'], ['PURPLE', 1, 'p']].forEach(function (t) {
+          var b = document.createElement('button');
+          b.type = 'button'; b.className = 'tbtn ' + t[2] + (p.team === t[1] ? ' on' : ''); b.textContent = t[0];
+          b.setAttribute('aria-label', 'Put ' + p.name + ' in ' + t[0]);
+          b.onclick = function () { party.roster = setTeam(party.roster, p.id, t[1]); lobbyChanged(); };
+          li.appendChild(b);
+        });
+      } else {
+        var label = document.createElement('span');
+        label.className = 'tlabel ' + (p.team === 0 ? 'g' : 'p'); label.textContent = p.team === 0 ? 'GREEN' : 'PURPLE';
+        li.appendChild(label);
+      }
+      list.appendChild(li);
+    });
+    $('party-count').textContent = party.roster.length + ' / ' + MAX_PLAYERS + ' players · GREEN ' + counts[0] + ' · PURPLE ' + counts[1];
+    $('b-party-start').classList.toggle('hidden', !party.host);
+    $('b-party-start').disabled = !canStart(party.roster);
+    $('party-note').textContent = !party.host ? 'Waiting for the admin to start the game.'
+      : canStart(party.roster) ? 'Put players into teams, then press Start. Teams may be uneven.'
+        : 'Each team needs at least one player.';
+  }
+  // Both the admin and the guests: set up who plays which game player, then hide the lobby.
+  function beginParty(players) {
+    var order = playOrder(players);
+    party.roster = players;
+    party.ids = order.map(function (p) { return p.id; });
+    party.myIdx = party.ids.indexOf(party.myId);
+    keys.mine = false;
+    panel(null); cheats.start(performance.now());
+    var myTeam = order[party.myIdx] ? order[party.myIdx].team : 0;
+    hint('Room ' + roomCode + ' · you are ' + (myTeam === 0 ? 'GREEN (left)' : 'PURPLE (right)') + ' · button: ' + BUTTON + ' · Esc: leave');
+    Sfx.play('round');
+    return order;
+  }
+  function startParty() {
+    if (!party || !party.host || !canStart(party.roster)) return;
+    send({ t: 'lock' });   // nobody can join after the start
+    send({ t: 'start', players: party.roster });
+    var order = beginParty(party.roster);
+    remoteKeys = {};
+    game = new Sim.Game({ teams: order.map(function (p) { return p.team; }) });
+    mode = 'host';
   }
 
   // ---------- network ----------
@@ -99,7 +190,7 @@ export function startGame() {
     w.onclose = function () {
       if (ws !== w) return;
       ws = null;
-      if (mode === 'host' || mode === 'guest') { toMenu(); toast('Lost connection to the server.', 4000); }
+      if (mode === 'host' || mode === 'guest' || mode === 'lobby') { toMenu(); toast('Lost connection to the server.', 4000); }
       else netFail('Cannot reach the game server. Please try again.');
     };
   }
@@ -109,6 +200,11 @@ export function startGame() {
     switch (m.t) {
       case 'created':
         roomCode = m.code;
+        if (m.party) {
+          party = { host: true, myId: 0, roster: [{ id: 0, name: m.name, team: 0 }] };
+          openLobby();
+          break;
+        }
         var tiles = $('room-code'); tiles.innerHTML = '';
         m.code.split('').forEach(function (ch) { var s = document.createElement('span'); s.textContent = ch; tiles.appendChild(s); });
         $('room-addr').textContent = location.host;
@@ -123,22 +219,54 @@ export function startGame() {
         hint('Room ' + roomCode + ' · you are GREEN (left) · button: ' + BUTTON + ' · Esc: leave');
         Sfx.play('round'); toast('Your opponent joined!', 2000);
         break;
+      case 'p-join':
+        if (mode !== 'lobby' || !party || !party.host) break;
+        party.roster = addPlayer(party.roster, m.id, m.name);
+        Sfx.play('click'); lobbyChanged();
+        break;
+      case 'p-left':
+        if (!party || !party.host) break;
+        if (mode === 'lobby') { party.roster = removePlayer(party.roster, m.id); lobbyChanged(); break; }
+        remoteKeys[m.id] = false;   // their player just stands still now
+        var gone = party.roster.filter(function (p) { return p.id === m.id; })[0];
+        toast((gone ? gone.name : 'A player') + ' left the game.', 3000);
+        break;
+      case 'lobby':
+        if (mode !== 'lobby' || !party || party.host) break;
+        party.roster = m.players; renderLobby();
+        break;
+      case 'start':
+        if (mode !== 'lobby' || !party || party.host) break;
+        beginParty(m.players);
+        mode = 'guest'; netBuf.reset();
+        break;
       case 'joined':
+        if (m.party) {
+          roomCode = m.code;
+          party = { host: false, myId: m.id, roster: [] };
+          openLobby();
+          break;
+        }
         mode = 'guest'; roomCode = m.code; netBuf.reset(); panel(null); cheats.start(performance.now());
         hint('Room ' + m.code + ' · you are PURPLE (right) · button: ' + BUTTON + ' · Esc: leave');
         toast('Joined room ' + m.code, 2000);
         break;
       case 'peer-left':
-        toMenu(); toast('Your opponent left the game.', 4000);
+        var wasParty = !!party;
+        toMenu(); toast(wasParty ? 'The admin left the room.' : 'Your opponent left the game.', 4000);
         break;
       case 'i':
-        if (mode === 'host') remoteKey = !!m.d;
+        if (mode === 'host' && party) remoteKeys[m.from] = !!m.d;
+        else if (mode === 'host') remoteKey = !!m.d;
         break;
       case 'c':
-        if (mode === 'host') game.cheatShot(1);   // the guest pressed the cheat combo
+        // a guest pressed the cheat combo: shoot for their team
+        if (mode === 'host') game.cheatShot(party ? teamOfId(m.from) : 1);
         break;
       case 'u':
-        if (mode === 'host' || mode === 'guest') uwu(false);   // the other player pressed Z + U
+        if (party && party.host) { uwu(false); send({ t: 'u', from: m.from }); }   // play it and pass it to everyone
+        else if (party) { if (m.from !== party.myId) uwu(false); }
+        else if (mode === 'host' || mode === 'guest') uwu(false);   // the other player pressed Z + U
         break;
       case 'x':
         if (mode === 'host') game.startChaos();   // the guest pressed Z + W
@@ -160,7 +288,11 @@ export function startGame() {
   }
   function panelOpen() { return !$('panels').classList.contains('hidden'); }
   on(window, 'keydown', function (e) {
-    if (e.code === 'Escape') { if (panelOpen()) { if (mode === 'menu') { closeNet(); panel(null); } } else if (mode !== 'menu') toMenu(); return; }
+    if (e.code === 'Escape') {
+      if (panelOpen()) { if (mode === 'menu') { closeNet(); panel(null); } else if (mode === 'lobby') toMenu(); }
+      else if (mode !== 'menu') toMenu();
+      return;
+    }
     if (e.code === 'KeyM') { $('b-mute').click(); return; }
     if (ANY[e.code]) e.preventDefault();
     if (e.repeat || panelOpen()) return;
@@ -182,10 +314,12 @@ export function startGame() {
     else if (ANY[e.code]) setMine(false);
   });
 
-  // Z + U: play the "uwu" sound here, and online tell the other player to play it too.
+  // Z + U: play the "uwu" sound here, and online tell the other players to play it too.
   function uwu(fromMe) {
     Sfx.play('uwu');
-    if (fromMe && (mode === 'host' || mode === 'guest')) send({ t: 'u' });
+    if (!fromMe) return;
+    if (party && party.host && mode === 'host') send({ t: 'u', from: 0 });
+    else if (mode === 'host' || mode === 'guest') send({ t: 'u' });
   }
   // Z + W: chaos for everyone (the host runs it, so the guest asks the host).
   function chaos() {
@@ -194,7 +328,8 @@ export function startGame() {
   }
   // Z + C: the ball you hold flies straight into the other team's hoop.
   function cheat() {
-    if (mode === 'cpu' || mode === 'host') game.cheatShot(0);
+    if (mode === 'host' && party) game.cheatShot(game.teams[party.myIdx]);
+    else if (mode === 'cpu' || mode === 'host') game.cheatShot(0);
     else if (mode === 'local') { if (!game.cheatShot(0)) game.cheatShot(1); }
     else if (mode === 'guest') send({ t: 'c' });
   }
@@ -230,7 +365,7 @@ export function startGame() {
   // ---------- events ----------
   var currentView = null;
   function handleEvent(e) {
-    if (mode !== 'menu' || e === 'uwu-chaos') Sfx.play(e);   // the menu demo is quiet, except for chaos
+    if ((mode !== 'menu' && mode !== 'lobby') || e === 'uwu-chaos') Sfx.play(e);   // the menu demo is quiet, except for chaos
     if (currentView) R.onEvent(e, currentView);
   }
 
@@ -238,15 +373,21 @@ export function startGame() {
   function tick() {
     if (mode === 'guest') return;
     var k0, k1;
-    if (mode === 'menu') { k0 = bots[0].update(game); k1 = bots[1].update(game); }
+    if (mode === 'menu' || mode === 'lobby') { k0 = bots[0].update(game); k1 = bots[1].update(game); }
     else if (mode === 'cpu') { k0 = keys.mine; k1 = bots[1].update(game); }
     else if (mode === 'local') { k0 = keys.team0; k1 = keys.team1; }
+    else if (mode === 'host' && party) {
+      // every player has their own button; any button after the end of a match starts a rematch
+      var pk = party.ids.map(function (id, idx) { return idx === party.myIdx ? keys.mine : !!remoteKeys[id]; });
+      game.setPlayerKeys(pk);
+      k0 = pk.some(Boolean); k1 = false;
+    }
     else if (mode === 'host') { k0 = keys.mine; k1 = remoteKey; }
     game.setKey(0, k0); game.setKey(1, k1);
     game.step();
     var ev = game.takeEvents();
     for (var i = 0; i < ev.length; i++) { handleEvent(ev[i]); if (mode === 'host') netEvents.push(ev[i]); }
-    if (mode === 'menu' && game.state === 'over') game = new Sim.Game();
+    if ((mode === 'menu' || mode === 'lobby') && game.state === 'over') game = new Sim.Game();
     tickN++;
     if (mode === 'host') {
       // one snapshot every tick; n is the tick number, so the guest can place it on the host's timeline
@@ -261,25 +402,39 @@ export function startGame() {
   function lerpA(a, b, t) { var d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * t; }
   // Chaos info for drawing and for the guest: [seconds since start, seed], or 0 when there is no chaos.
   function chaosInfo() { return game.chaos > 0 ? [Math.round(game.chaosTime * 1000) / 1000, game.chaosSeed] : 0; }
+  // One label (or null) per player, shown over them at the start of each round.
+  function playerHints(teams) {
+    if (party) return teams.map(function (t, i) { return i === party.myIdx ? 'YOU' : null; });
+    if (mode === 'local') return teams.map(function (t) { return t === 0 ? 'W' : '↑'; });
+    if (mode === 'cpu' || mode === 'host') return teams.map(function (t) { return t === 0 ? 'YOU' : null; });
+    if (mode === 'guest') return teams.map(function (t) { return t === 1 ? 'YOU' : null; });
+    return null;
+  }
+  function partyWinLabel(teams, score) {
+    var mine = teams[party.myIdx];
+    return score[mine] > score[1 - mine] ? 'YOUR TEAM WINS!' : 'YOUR TEAM LOST';
+  }
   function hostView() {
-    var hints = mode === 'local' ? ['W', '↑'] : (mode === 'cpu' || mode === 'host') ? ['YOU', null] : null;
+    var hints = playerHints(game.teams);
     var win = null;
-    if ((mode === 'cpu' || mode === 'host') && game.state === 'over') win = game.score[0] > game.score[1] ? 'YOU WIN!' : (mode === 'cpu' ? 'COMPUTER WINS' : 'OPPONENT WINS');
+    if (party && game.state === 'over') win = partyWinLabel(game.teams, game.score);
+    else if ((mode === 'cpu' || mode === 'host') && game.state === 'over') win = game.score[0] > game.score[1] ? 'YOU WIN!' : (mode === 'cpu' ? 'COMPUTER WINS' : 'OPPONENT WINS');
     var cx = chaosInfo();
     return { L: game.L, key: 'r' + game.round + '_' + game.cfg.seed, bodies: game.bodies(), score: game.shownScore(), state: game.state, timer: game.timer,
       chaos: cx ? { t: cx[0], seed: cx[1] } : null,
-      lastScorer: game.lastScorer, roundTime: game.roundTime, holder: game.holder, hints: hints, menu: mode === 'menu', winLabel: win,
+      lastScorer: game.lastScorer, roundTime: game.roundTime, holder: game.holder, hints: hints, menu: mode === 'menu' || mode === 'lobby', winLabel: win,
+      me: party && mode === 'host' ? party.myIdx : -1,
       status: null };
   }
   function guestView() {
     var pick = netBuf.sample(performance.now());
     if (!pick) return null;
-    var s = pick.a, b2 = pick.b, bodies = s.b;
+    var s = pick.a, b2 = pick.b, bodies = s.b, teams = s.c.teams || [0, 0, 1, 1], bi = teams.length * 7;
     if (b2 && b2.r === s.r) {
       var t = Math.min(1, Math.max(0, pick.t));
       bodies = new Array(s.b.length);
       for (var k = 0; k < s.b.length; k++) {
-        var slot = k < 28 ? k % 7 : (k - 28) + 7;
+        var slot = k < bi ? k % 7 : (k - bi) + 7;
         if (slot === 2 || slot === 5 || slot === 9) bodies[k] = lerpA(s.b[k], b2.b[k], t);
         else bodies[k] = s.b[k] + (b2.b[k] - s.b[k]) * t;
       }
@@ -293,7 +448,8 @@ export function startGame() {
     var key = 'r' + s.r + '_' + s.c.seed;
     if (!guestLayouts[key]) guestLayouts[key] = Sim.layout(s.c);
     return { L: guestLayouts[key], key: key, bodies: bodies, score: s.sc, state: s.st, chaos: chaosView, timer: s.tm, lastScorer: s.ls, roundTime: s.rt, holder: s.h,
-      hints: [null, 'YOU'], winLabel: s.st === 'over' ? (s.sc[1] > s.sc[0] ? 'YOU WIN!' : 'OPPONENT WINS') : null, status: null };
+      hints: playerHints(teams), me: party ? party.myIdx : -1, status: null,
+      winLabel: s.st !== 'over' ? null : party ? partyWinLabel(teams, s.sc) : (s.sc[1] > s.sc[0] ? 'YOU WIN!' : 'OPPONENT WINS') };
   }
 
   // Menu buttons in canvas pixels. They are stacked in one column so labels never overlap.
@@ -330,7 +486,7 @@ export function startGame() {
       v.dt = dt; currentView = v;
       R.draw(v);
       if (mode === 'menu' && !panelOpen()) R.menu(hover, menuItems);
-      else if (mode === 'menu') { R.ctx.fillStyle = 'rgba(8,8,12,0.45)'; R.ctx.fillRect(0, 0, R.W, H); }
+      else if (mode === 'menu' || mode === 'lobby') { R.ctx.fillStyle = 'rgba(8,8,12,0.45)'; R.ctx.fillRect(0, 0, R.W, H); }
     } else {
       R.ctx.fillStyle = '#15161a'; R.ctx.fillRect(0, 0, R.W, H);
       Render.text(R.ctx, 'WAITING FOR HOST...', 8, R.W / 2, 90, '#ffffff', '#000');
@@ -340,6 +496,7 @@ export function startGame() {
 
   function resize() {
     var vw = window.innerWidth, vh = window.innerHeight;
+    if (!vw || !vh) return;   // hidden tab with no size yet: wait for the next resize
     var W = R.resize(H * vw / vh);
     var s = Math.min(vw / W, vh / H);
     var wrap = $('wrap');
@@ -350,6 +507,7 @@ export function startGame() {
     buildMenu();
   }
   on(window, 'resize', resize);
+  on(document, 'visibilitychange', resize);
   resize();  // size the canvas and menu buttons right away, so early clicks already work
 
   var fontsReady = document.fonts ? document.fonts.load('8px "Press Start 2P"') : Promise.resolve();

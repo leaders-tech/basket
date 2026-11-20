@@ -18,7 +18,7 @@
     package), `render.js` canvas drawing and on-screen text, `game.js` menu, controls, game loop and online play,
     `sound.js` sounds (generated, plus the `sounds/uwu.mp3` file), `netsync.js` guest snapshot buffer (smooth online play), `ticker.js` worker timer that keeps
     the host running in a hidden tab, `game.css` panels, `fonts/` the Press Start 2P pixel font (SIL Open Font License).
-    Unit tests: `sim.test.js`, `render.test.js`, `netsync.test.js`. E2E test: `frontend/tests/e2e/game.spec.ts`.
+    Unit tests: `sim.test.js`, `render.test.js`, `netsync.test.js`, `combos.test.js`, `party.test.js`. E2E test: `frontend/tests/e2e/game.spec.ts`.
   - Secret key combos in `frontend/src/game/combos.js` (+ `combos.test.js`): Z + C is the cheat shot while your team
     holds the ball (`Game.cheatShot` in `sim.js`; the guest sends `{t: 'c'}`), Z + U plays `sounds/uwu.mp3` for both
     players (online each side sends `{t: 'u'}` to the other), Z + W starts 8 seconds of chaos (`Game.startChaos`
@@ -31,6 +31,12 @@
   - Each team's score box is on its own side (team 0 left, team 1 right).
   - Online rooms: `backend/game/rooms.py` (in-memory rooms) and `backend/game/routes.py` (public websocket
     `/ws/game`, no login). Tests: `backend/tests/test_game.py`.
+  - Party rooms (2-8 players, uneven teams allowed): the server keeps a player id per guest (`create-party`, `join`
+    with `name`, `p-join` / `p-left` to the host, `lock` after start; guest messages reach the host with `from`).
+    The host (admin) keeps the player list in `frontend/src/game/party.js` (+ `party.test.js`), sends `lobby` and
+    `start` to everyone, and runs the game with `new Sim.Game({ teams })` and one button per player
+    (`Game.setPlayerKeys`). Round configs carry `teams`, so guests build the same players. Lobby UI is the `p-party`
+    card in `GamePage.tsx`; the e2e party test is in `game.spec.ts`.
   - App name, PWA manifest, and icon (`frontend/public/icon.svg` and generated icons).
 - Remaining template: demo login/admin accounts, the login/dashboard/admin pages and their shared layout, notes,
   the logged-in `/ws` socket example, migrations, their tests, development helpers, and deployment examples.

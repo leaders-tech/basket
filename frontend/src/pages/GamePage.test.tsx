@@ -29,7 +29,9 @@ describe("GamePage", () => {
 
   it("has the online play panels in English", () => {
     render(<GamePage />);
-    expect(screen.getByRole("button", { name: "Create room", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create room (1 vs 1)", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create party room (up to 8)", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start game", hidden: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Join", hidden: true })).toBeInTheDocument();
     expect(screen.getByText("Waiting for an opponent")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/[А-Яа-яЁё]/);

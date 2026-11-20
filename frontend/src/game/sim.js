@@ -57,14 +57,18 @@ import * as pl from "planck";
     for (i = 0; i < keys.length; i++) { r -= (weights && weights[keys[i]]) || 1; if (r <= 0) return keys[i]; }
     return keys[0];
   }
-  function randomConfig(first) {
-    if (first) return { place: 'street', ball: 'normal', chars: 'normal', goal: 'normal', seed: Math.floor(Math.random() * 1e9) };
+  // teams: the team (0 or 1) of every player, in player order. Party rooms can have uneven teams like [0, 1, 1, 1].
+  var DEFAULT_TEAMS = [0, 0, 1, 1];
+  function randomConfig(first, teams) {
+    teams = teams || DEFAULT_TEAMS;
+    if (first) return { place: 'street', ball: 'normal', chars: 'normal', goal: 'normal', seed: Math.floor(Math.random() * 1e9), teams: teams };
     return {
       place: weighted(PLACES, { street: 2 }),
       ball: weighted(BALLS, { normal: 3 }),
       chars: weighted(CHARS, { normal: 3 }),
       goal: weighted(GOALS, { normal: 3 }),
-      seed: Math.floor(Math.random() * 1e9)
+      seed: Math.floor(Math.random() * 1e9),
+      teams: teams
     };
   }
   function rng(seed) { var s = seed >>> 0; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
@@ -73,15 +77,15 @@ import * as pl from "planck";
     var r = rng(cfg.seed);
     var hairs = ['#e8c35a', '#f1d77a', '#6b4425', '#2e1f16', '#16120f', '#b85a2a', '#d9d4c7'];
     var skins = ['#f2c7a0', '#e9b48a', '#c98d5f', '#8f5a3a', '#f6d2b4', '#a86b45'];
-    var looks = [];
-    for (var i = 0; i < 4; i++) looks.push({ hair: hairs[Math.floor(r() * hairs.length)], skin: skins[Math.floor(r() * skins.length)], style: Math.floor(r() * 4) });
+    var teams = cfg.teams || DEFAULT_TEAMS, looks = [];
+    for (var i = 0; i < teams.length; i++) looks.push({ hair: hairs[Math.floor(r() * hairs.length)], skin: skins[Math.floor(r() * skins.length)], style: Math.floor(r() * 4) });
     var parts = [];
     var place = PLACES[cfg.place], ball = BALLS[cfg.ball], ch = CHARS[cfg.chars], goal = GOALS[cfg.goal];
     if (cfg.place !== 'street') parts.push(place.name);
     if (cfg.ball !== 'normal') parts.push(ball.name);
     if (cfg.chars !== 'normal') parts.push(ch.name);
     if (cfg.goal !== 'normal') parts.push(goal.name);
-    return { cfg: cfg, place: cfg.place, ballKind: cfg.ball, ball: ball, chars: ch, goal: goal, looks: looks,
+    return { cfg: cfg, place: cfg.place, ballKind: cfg.ball, ball: ball, chars: ch, goal: goal, looks: looks, teams: teams,
       hoops: [hoopGeom(-1, goal), hoopGeom(1, goal)], titleParts: parts, title: parts.join(' · ') };
   }
 
@@ -101,7 +105,10 @@ import * as pl from "planck";
   }
 
   // ---------- game ----------
-  class Game { constructor() {
+  // opts.teams: team of every player (default two players per team)
+  class Game { constructor(opts) {
+    this.teams = (opts && opts.teams) || DEFAULT_TEAMS.slice();
+    this.pkeys = null;       // party mode: one button per player instead of one per team (see setPlayerKeys)
     this.score = [0, 0];
     this.keys = [false, false];
     this.state = 'play';           // play | goal | over
@@ -113,7 +120,7 @@ import * as pl from "planck";
     this.chaos = 0;          // seconds of chaos left (keys Z + W); it lasts across rounds
     this.chaosTime = 0;      // seconds since chaos started
     this.chaosSeed = 0;
-    this.newRound(randomConfig(true));
+    this.newRound(randomConfig(true, this.teams));
   } }
 
   Game.prototype.newRound = function (cfg) {
@@ -129,7 +136,7 @@ import * as pl from "planck";
     this.score = [0, 0];
     this.state = 'play';
     this.lastScorer = -1;
-    this.newRound(randomConfig(false));
+    this.newRound(randomConfig(false, this.teams));
   };
 
   function P(x, y) { return Vec2(x * S, y * S); }
@@ -163,10 +170,10 @@ import * as pl from "planck";
     });
     this.hoopOff = [0, 0];
 
-    // players: 0,1 are team 0 on the left (facing right), 2,3 are team 1 on the right
-    var xs = [74, 115, 176, 217];
+    // players: team 0 stands on the left (facing right), team 1 on the right
+    var xs = spawnXs(this.teams);
     this.players = [];
-    for (var i = 0; i < 4; i++) this.players.push(this.makePlayer(i, xs[i]));
+    for (var i = 0; i < this.teams.length; i++) this.players.push(this.makePlayer(i, xs[i]));
 
     // ball
     this.ball = null;
@@ -204,16 +211,28 @@ import * as pl from "planck";
     this.prevBallY = y;
   };
 
+  // Start x of every player: each team is spread evenly around its half of the court.
+  function spawnXs(teams) {
+    var xs = [], count = [0, 0], seen = [0, 0], i;
+    for (i = 0; i < teams.length; i++) count[teams[i]]++;
+    for (i = 0; i < teams.length; i++) {
+      var t = teams[i], n = count[t], center = t === 0 ? 94.5 : 196.5, span = Math.min(41 * (n - 1), 60);
+      xs.push(n === 1 ? center : center - span / 2 + seen[t] * span / (n - 1));
+      seen[t]++;
+    }
+    return xs;
+  }
+
   Game.prototype.makePlayer = function (idx, x) {
-    var world = this.world, ch = this.L.chars, h = ch.h;
-    var facing = idx < 2 ? 1 : -1, group = -(idx + 1);
+    var world = this.world, ch = this.L.chars, h = ch.h, team = this.teams[idx];
+    var facing = team === 0 ? 1 : -1, group = -(idx + 1);
     var body = world.createBody({ type: 'dynamic', position: P(x, GROUND - 0.02), fixedRotation: true });
     var area = 6 * h * S * S;
     body.createFixture(pl.Box(3 * S, h / 2 * S, Vec2(0, -h / 2 * S), 0), { density: 1 / area, friction: 1, restitution: 0, filterGroupIndex: group, userData: { kind: 'body', p: idx } });
     var head = world.createBody({ type: 'dynamic', position: P(x, GROUND - h - 2.5) });
     head.createFixture(pl.Circle(4.5 * S), { density: 1, friction: 0, restitution: 0, filterGroupIndex: group, userData: { kind: 'head', p: idx } });
     world.createJoint(pl.RevoluteJoint({ enableLimit: true, lowerAngle: -10 * Math.PI / 180, upperAngle: 10 * Math.PI / 180 }, body, head, P(x, GROUND - h + 3)));
-    return { idx: idx, team: idx < 2 ? 0 : 1, facing: facing, body: body, head: head, h: h, reach: ch.arm,
+    return { idx: idx, team: team, facing: facing, body: body, head: head, h: h, reach: ch.arm,
       angular: 0, jump: false, moreJump: 0, wait: 0, upArrow: false, onGround: true, prevKey: false,
       arm: 0, armed: false, regrab: 0, armTouch: false };
   };
@@ -238,6 +257,9 @@ import * as pl from "planck";
     var ys = [[-3, 0], [3, 0], [-3, -p.h], [3, -p.h]].map(function (v) { return q.y / S + v[0] * s + v[1] * c; });
     return Math.max.apply(null, ys) >= GROUND - 3;
   };
+
+  // Party mode: arr[i] is true while player i's button is down.
+  Game.prototype.setPlayerKeys = function (arr) { this.pkeys = arr; };
 
   Game.prototype.setKey = function (team, down) {
     if (this.state === 'over' && down && !this.keys[team] && this.timer <= 0) { this.keys[team] = down; this.resetMatch(); return; }
@@ -328,7 +350,7 @@ import * as pl from "planck";
     if (this.chaosKick > 0) return;
     this.chaosKick = CHAOS_KICK;
     this.fakeScore = [Math.floor(Math.random() * 100), Math.floor(Math.random() * 100)];
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
       p.body.setLinearVelocity(Vec2(rand(-120, 120) * S, rand(-140, -60) * S));
       p.body.setAngularVelocity(rand(-14, 14));
@@ -349,7 +371,7 @@ import * as pl from "planck";
     for (i = 0; i < 2; i++) if (this.hoopOff[i] > 0) this.hoopOff[i] -= dt;
     var playing = this.state !== 'over';
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < this.players.length; i++) {
       p = this.players[i];
       var f = this.feet(p), t = this.top(p);
       var ang = normDeg(deg(p.body.getAngle()));
@@ -372,7 +394,7 @@ import * as pl from "planck";
       }
 
       // controls
-      var key = playing && this.keys[p.team];
+      var key = playing && (this.pkeys ? !!this.pkeys[i] : this.keys[p.team]);
       if (p.wait > 0) p.wait -= dt;
       if (p.regrab > 0) p.regrab -= dt;
       if (key && !p.prevKey && this.holder === i && !p.armed) p.armed = true;
@@ -408,7 +430,7 @@ import * as pl from "planck";
 
     // ball and arms
     var bp = this.ball.getPosition(), bx0 = bp.x / S, by0 = bp.y / S, br = this.L.ball.r;
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < this.players.length; i++) {
       p = this.players[i];
       var s = this.shoulder(p), hnd = this.hand(p);
       // does the ball touch the arm (line from shoulder to hand)
@@ -488,25 +510,26 @@ import * as pl from "planck";
       this.makeBall(CENTER + (Math.random() - 0.5) * 6, 40);
       this.events.push('redrop');
     }
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < this.players.length; i++) {
       p = this.players[i];
       var fp = this.feet(p);
       if (fp.x < 0 || fp.x > FIELD_W || fp.y > GROUND + 30 || !isFinite(fp.x)) {
-        p.body.setTransform(P(i < 2 ? 90 : 200, GROUND - 40), 0); p.body.setLinearVelocity(Vec2(0, 0));
-        p.head.setTransform(P(i < 2 ? 90 : 200, GROUND - 40 - p.h - 2.5), 0); p.head.setLinearVelocity(Vec2(0, 0));
+        var rx = p.team === 0 ? 90 : 200;
+        p.body.setTransform(P(rx, GROUND - 40), 0); p.body.setLinearVelocity(Vec2(0, 0));
+        p.head.setTransform(P(rx, GROUND - 40 - p.h - 2.5), 0); p.head.setLinearVelocity(Vec2(0, 0));
       }
     }
 
     if (this.state === 'goal') {
       this.timer -= DT;
-      if (this.timer <= 0) { this.state = 'play'; this.newRound(randomConfig(false)); }
+      if (this.timer <= 0) { this.state = 'play'; this.newRound(randomConfig(false, this.teams)); }
     } else if (this.state === 'over') this.timer -= DT;
   };
 
   // snapshot for drawing and network: per player [x, y, angle, headX, headY, headAngle, arm], then ball [x, y, angle]
   Game.prototype.bodies = function () {
     var out = [], i;
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < this.players.length; i++) {
       var p = this.players[i], a = p.body.getPosition(), h = p.head.getPosition();
       out.push(a.x / S, a.y / S, p.body.getAngle(), h.x / S, h.y / S, p.head.getAngle(), this.armAngle(p));
     }

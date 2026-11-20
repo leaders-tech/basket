@@ -6,6 +6,10 @@ After every point the court, the ball, the players, and the hoop change at rando
 - **1 PLAYER** — you against the computer. Button: W, ↑, Space, or click.
 - **2 PLAYERS** — on one keyboard. Green team: W. Purple team: ↑.
 - **ONLINE** — create a room and send the 4-character code to a friend.
+- **ONLINE → Create party room** — for 2 to 8 players. Everyone types their name and joins with the code. The admin
+  (who created the room) puts each player into GREEN or PURPLE and presses **Start game**. Each player controls only
+  their own player (a small arrow shows which one). Teams may be uneven, even 1 against 3. Nobody can join after the
+  start; if someone leaves, their player just stands still.
   To play on the same Wi-Fi, start the app with `make back-lan` and `make front-lan` (see below).
   The host's browser runs the game, so keep the host's tab open (it may be in the background).
 

@@ -98,6 +98,36 @@ describe("game rules", () => {
     expect(game.startChaos()).toBe(false);
   });
 
+  it("plays with uneven teams, like 1 against 3 or 3 against 1, each player with their own button", () => {
+    for (const teams of [[0, 1, 1, 1], [0, 0, 0, 1], [0, 1], [0, 0, 0, 0, 1, 1, 1, 1]]) {
+      const game = new Sim.Game({ teams });
+      expect(game.players.map((p) => p.team)).toEqual(teams);
+      expect(game.L.looks).toHaveLength(teams.length);
+      for (let i = 0; i < 60 * 10; i++) {
+        // each player presses on their own rhythm
+        game.setPlayerKeys(teams.map((_, k) => (i + k * 13) % 50 < 12));
+        game.step();
+        game.takeEvents();
+      }
+      expect(game.bodies()).toHaveLength(teams.length * 7 + 3);
+      expect(game.bodies().every(Number.isFinite)).toBe(true);
+      // the team stays the same after new rounds
+      expect(game.cfg.teams).toEqual(teams);
+    }
+  });
+
+  it("party mode: only the pressed player jumps", () => {
+    const game = new Sim.Game({ teams: [0, 1, 1, 1] });
+    for (let i = 0; i < 30; i++) game.step();
+    const startY = game.players.map((p) => p.body.getPosition().y);
+    game.setPlayerKeys([false, false, true, false]);
+    for (let i = 0; i < 10; i++) game.step();
+    const dy = game.players.map((p, i) => p.body.getPosition().y - startY[i]);
+    expect(dy[2]).toBeLessThan(-0.1);
+    expect(Math.abs(dy[1])).toBeLessThan(0.05);
+    expect(Math.abs(dy[3])).toBeLessThan(0.05);
+  });
+
   it("ends the match at the win score and a button press starts a new one", () => {
     const game = new Sim.Game();
     game.score = [Sim.WIN_SCORE, 2];

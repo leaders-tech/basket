@@ -18,6 +18,9 @@
   cheat combo. Either player can send `{t: 'u'}` (Z + U), and the other side plays the uwu sound. The guest sends `{t: 'x'}`
   (Z + W) to start chaos on the host. The host's physics clock is driven by `ticker.js` too, so a hidden host tab does not freeze the guest.
   The guest blends snapshots with `netsync.js`, which keeps the display delay as small as the network allows.
+- Party rooms: the admin's browser is the host. `party.js` holds the player list rules; `game.js` has the lobby
+  (`openLobby`, `renderLobby`, `startParty`, `beginParty`). In a party game every player has their own button, and
+  `bodies` holds 7 numbers per player for any number of players, then the ball.
 - When the transition is complete, remove template inventories and all template-specific wording and instructions here. Keep instructions that describe the user's frontend.
 
 ## Working defaults

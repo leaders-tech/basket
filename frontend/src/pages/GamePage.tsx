@@ -19,10 +19,14 @@ export function GamePage() {
         <div id="panels" className="hidden">
           <div id="p-online" className="card hidden">
             <h2>Online game</h2>
-            <p>Create a room and send the code to a friend, or type your friend's code.</p>
-            <div style={{ marginTop: "0.9em" }}>
+            <p>Create a room and send the code to friends, or type a friend's code.</p>
+            <input id="name-in" className="field" maxLength={12} placeholder="Your name" autoComplete="off" spellCheck={false} aria-label="Your name" />
+            <div className="stack" style={{ marginTop: "0.7em" }}>
               <button type="button" className="btn" id="b-create">
-                Create room
+                Create room (1 vs 1)
+              </button>
+              <button type="button" className="btn" id="b-party">
+                Create party room (up to 8)
               </button>
             </div>
             <div className="or">or</div>
@@ -57,6 +61,25 @@ export function GamePage() {
               </button>
               <button type="button" className="btn ghost" id="b-cancel">
                 Cancel
+              </button>
+            </div>
+          </div>
+
+          <div id="p-party" className="card hidden">
+            <h2>Party room</h2>
+            <div className="tiles" id="party-code" aria-label="Party room code" />
+            <p>
+              Friends open <span className="addr" id="party-addr" />, click Online, type their name and this code.
+            </p>
+            <p id="party-count" />
+            <ul className="party-list" id="party-list" aria-label="Players" />
+            <p id="party-note" />
+            <div className="row">
+              <button type="button" className="btn" id="b-party-start">
+                Start game
+              </button>
+              <button type="button" className="btn ghost" id="b-party-leave">
+                Leave
               </button>
             </div>
           </div>

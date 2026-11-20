@@ -12,7 +12,9 @@ export function createSnapshotBuffer(tickMs) {
   var snaps = [], arrivals = [], base = 0, delay = 60;
 
   // s.n is the host tick number of this snapshot; now is when it arrived (ms).
+  // Returns false for a snapshot that is old or already here (it can come twice: directly and through the server).
   function push(s, now) {
+    if (snaps.length && s.n <= snaps[snaps.length - 1].n) return false;
     snaps.push(s);
     if (snaps.length > MAX_SNAPS) snaps.shift();
     // off = how late this snapshot is compared to the host clock. The smallest off is the fastest delivery.
@@ -24,6 +26,7 @@ export function createSnapshotBuffer(tickMs) {
     var jitter = late[Math.floor((late.length - 1) * 0.9)];
     var want = Math.max(MIN_DELAY, Math.min(MAX_DELAY, jitter + tickMs * 1.5));
     delay += (want - delay) * (want > delay ? 0.3 : 0.02);   // grow fast, shrink slowly
+    return true;
   }
 
   // Returns { a, b, t }: show snapshot a blended towards b by t (0..1). b is null when there is nothing newer yet.

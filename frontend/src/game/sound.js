@@ -69,6 +69,7 @@ export function createSound() {
       case 'redrop': tone(700, 300, 0.12, 'triangle', 0.1); break;
       case 'click': tone(880, 1200, 0.05, 'square', 0.05); break;
       case 'uwu': clip('uwu'); break;
+      case 'stop': tone(520, 160, 0.18, 'triangle', 0.12); break;
       case 'uwu-chaos': clip('uwu', 0.6 + Math.random() * 1.2); break;   // chaos: uwu again and again, at random pitch
     }
   }

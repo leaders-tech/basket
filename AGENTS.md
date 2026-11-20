@@ -16,14 +16,17 @@
   - Game page at `/`: `frontend/src/pages/GamePage.tsx` (+ test).
   - Game code (plain JavaScript modules): `frontend/src/game/` — `sim.js` physics and rules (uses the `planck`
     package), `render.js` canvas drawing and on-screen text, `game.js` menu, controls, game loop and online play,
-    `sound.js` sounds (generated, plus the `sounds/uwu.mp3` file), `netsync.js` guest snapshot buffer (smooth online play), `ticker.js` worker timer that keeps
+    `sound.js` sounds (generated, plus the `sounds/uwu.mp3` file), `p2p.js` direct WebRTC connection between host and
+    guests (snapshots on an unreliable "fast" channel, inputs on a "sure" channel; setup via `{t: 'rtc'}` through
+    `/ws/game`; public Google STUN server; falls back to the server websocket), `netsync.js` guest snapshot buffer (smooth online play), `ticker.js` worker timer that keeps
     the host running in a hidden tab, `game.css` panels, `fonts/` the Press Start 2P pixel font (SIL Open Font License).
     Unit tests: `sim.test.js`, `render.test.js`, `netsync.test.js`, `combos.test.js`, `party.test.js`. E2E test: `frontend/tests/e2e/game.spec.ts`.
   - Secret key combos in `frontend/src/game/combos.js` (+ `combos.test.js`): Z + C is the cheat shot while your team
     holds the ball (`Game.cheatShot` in `sim.js`; the guest sends `{t: 'c'}`), Z + U plays `sounds/uwu.mp3` for both
     players (online each side sends `{t: 'u'}` to the other), Z + W starts 8 seconds of chaos (`Game.startChaos`
     in `sim.js`, crowd and spinning in `Renderer.chaosCrowd` / `draw` in `render.js`; the guest sends `{t: 'x'}`,
-    snapshots carry `x: [seconds, seed]`). During chaos `Game.shownScore()` returns random numbers; the real
+    snapshots carry `x: [seconds, seed]`), Z + S stops a flying ball so it falls straight down (`Game.stopBall`;
+    the guest sends `{t: 'd'}`). During chaos `Game.shownScore()` returns random numbers; the real
     `game.score` is not changed.
   - All combos are locked until the player presses 1 four times in the first 5 seconds of a match
     (`createCheatUnlock` in `combos.js`, started in `startLocal` / `peer-joined` / `joined`, reset in `toMenu`).

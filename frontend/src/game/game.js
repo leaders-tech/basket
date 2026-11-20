@@ -9,6 +9,7 @@ import { Render } from "./render.js";
 import { createSound } from "./sound.js";
 import { createSnapshotBuffer } from "./netsync.js";
 import { COMBO_KEYS, UNLOCK_KEYS, comboFor, createCheatUnlock } from "./combos.js";
+import { createPeer } from "./p2p.js";
 import { MAX_PLAYERS, addPlayer, canStart, playOrder, removePlayer, setTeam, teamCounts } from "./party.js";
 
 export const SOCKET_PATH = "/ws/game";
@@ -36,6 +37,8 @@ export function startGame() {
   // Party room (3+ players): null in other modes.
   // { host, myId, roster: [{ id, name, team }], ids: player id of every game player, myIdx: my game player }
   var party = null, remoteKeys = {};
+  // Direct browser-to-browser connections (p2p.js). Host: one per guest id ('duo' in a 1 vs 1 room). Guest: hostPeer.
+  var peers = {}, hostPeer = null;
 
   function panel(id) {
     ['p-online', 'p-wait', 'p-party', 'p-connect'].forEach(function (s) { $(s).classList.toggle('hidden', s !== id); });
@@ -174,9 +177,43 @@ export function startGame() {
     mode = 'host';
   }
 
+  // ---------- direct connection (WebRTC) ----------
+  // The host starts a direct connection to each guest. Setup messages ({t: 'rtc'}) travel through the game server.
+  function startPeer(id) {
+    if (peers[id]) peers[id].close();
+    peers[id] = createPeer(true,
+      function (d) { send(party ? { t: 'rtc', to: id, d: d } : { t: 'rtc', d: d }); },
+      function (m) { if (party) m.from = id; onNet(m); },
+      function () { $('wrap').dataset.link = 'direct'; });
+  }
+  function guestPeer() {
+    if (!hostPeer) hostPeer = createPeer(false, function (d) { send({ t: 'rtc', d: d }); }, onNet, function () {
+      $('wrap').dataset.link = 'direct';   // shows in the page for checks: the game talks to the host directly
+      toast('Fast direct connection', 1500);
+    });
+    return hostPeer;
+  }
+  function closePeers() {
+    for (var id in peers) if (peers[id]) peers[id].close();
+    peers = {};
+    if (hostPeer) hostPeer.close();
+    hostPeer = null;
+    delete $('wrap').dataset.link;
+  }
+  // Host: send a snapshot directly where possible. If some guest has no direct connection, the server gets it too
+  // (guests drop the copy they already have).
+  function sendSnapshot(snap) {
+    var ids = Object.keys(peers), allDirect = ids.length > 0;
+    ids.forEach(function (id) { if (!(peers[id] && peers[id].send(snap, true))) allDirect = false; });
+    if (!allDirect) send(snap);
+  }
+  // Guest: send to the host directly if possible, otherwise through the server.
+  function sendToHost(o) { if (!(hostPeer && hostPeer.send(o, false))) send(o); }
+
   // ---------- network ----------
   function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
   function closeNet() {
+    closePeers();
     if (ws) { var w = ws; ws = null; try { w.onclose = null; w.close(); } catch { } }
     roomCode = null; netBuf.reset(); remoteKey = false;
   }
@@ -216,16 +253,19 @@ export function startGame() {
         break;
       case 'peer-joined':
         mode = 'host'; game = new Sim.Game(); remoteKey = false; panel(null); cheats.start(performance.now());
+        startPeer('duo');
         hint('Room ' + roomCode + ' · you are GREEN (left) · button: ' + BUTTON + ' · Esc: leave');
         Sfx.play('round'); toast('Your opponent joined!', 2000);
         break;
       case 'p-join':
         if (mode !== 'lobby' || !party || !party.host) break;
         party.roster = addPlayer(party.roster, m.id, m.name);
+        startPeer(m.id);
         Sfx.play('click'); lobbyChanged();
         break;
       case 'p-left':
         if (!party || !party.host) break;
+        if (peers[m.id]) { peers[m.id].close(); delete peers[m.id]; }
         if (mode === 'lobby') { party.roster = removePlayer(party.roster, m.id); lobbyChanged(); break; }
         remoteKeys[m.id] = false;   // their player just stands still now
         var gone = party.roster.filter(function (p) { return p.id === m.id; })[0];
@@ -271,9 +311,17 @@ export function startGame() {
       case 'x':
         if (mode === 'host') game.startChaos();   // the guest pressed Z + W
         break;
+      case 'd':
+        if (mode === 'host') game.stopBall();   // a guest pressed Z + S
+        break;
+      case 'rtc':
+        if (party && party.host) { if (peers[m.from]) peers[m.from].signal(m.d); }
+        else if (mode === 'host') { if (peers.duo) peers.duo.signal(m.d); }
+        else if (!party || m.to === party.myId) { var hp = guestPeer(); if (hp) hp.signal(m.d); }
+        break;
       case 's':
         if (mode !== 'guest') break;
-        netBuf.push(m, performance.now());
+        if (!netBuf.push(m, performance.now())) break;   // an old or repeated snapshot
         if (m.ev) for (var i = 0; i < m.ev.length; i++) handleEvent(m.ev[i]);
         break;
     }
@@ -284,7 +332,7 @@ export function startGame() {
   function setMine(down) {
     if (keys.mine === down) return;
     keys.mine = down;
-    if (mode === 'guest') send({ t: 'i', d: down ? 1 : 0 });
+    if (mode === 'guest') sendToHost({ t: 'i', d: down ? 1 : 0 });
   }
   function panelOpen() { return !$('panels').classList.contains('hidden'); }
   on(window, 'keydown', function (e) {
@@ -301,7 +349,7 @@ export function startGame() {
     if (COMBO_KEYS[e.code]) {
       held[e.code] = true;
       var action = cheats.isUnlocked() ? comboFor(held, e.code) : null;
-      if (action === 'cheat') cheat(); else if (action === 'uwu') uwu(true); else if (action === 'chaos') chaos();
+      if (action === 'cheat') cheat(); else if (action === 'uwu') uwu(true); else if (action === 'chaos') chaos(); else if (action === 'stop') stopBall();
       if (!ANY[e.code]) return;   // W is also the jump button, so it goes on to the controls below
     }
     if (mode === 'menu') { if (e.code === 'Enter' || e.code === 'Space') { startLocal('cpu'); } return; }
@@ -325,6 +373,11 @@ export function startGame() {
   function chaos() {
     if (mode === 'menu' || mode === 'cpu' || mode === 'local' || mode === 'host') game.startChaos();
     else if (mode === 'guest') send({ t: 'x' });
+  }
+  // Z + S: the flying ball stops in the air and falls straight down (the host runs it, so the guest asks the host).
+  function stopBall() {
+    if (mode === 'cpu' || mode === 'local' || mode === 'host') game.stopBall();
+    else if (mode === 'guest') sendToHost({ t: 'd' });
   }
   // Z + C: the ball you hold flies straight into the other team's hoop.
   function cheat() {
@@ -393,7 +446,7 @@ export function startGame() {
       // one snapshot every tick; n is the tick number, so the guest can place it on the host's timeline
       var b = game.bodies();
       for (var j = 0; j < b.length; j++) b[j] = Math.round(b[j] * 100) / 100;
-      send({ t: 's', n: tickN, r: game.round, c: game.cfg, b: b, sc: game.shownScore(), x: chaosInfo(), st: game.state, tm: Math.round(game.timer * 100) / 100,
+      sendSnapshot({ t: 's', n: tickN, r: game.round, c: game.cfg, b: b, sc: game.shownScore(), x: chaosInfo(), st: game.state, tm: Math.round(game.timer * 100) / 100,
         ls: game.lastScorer, rt: Math.round(game.roundTime * 100) / 100, h: game.holder, ev: netEvents });
       netEvents = [];
     }

@@ -1,6 +1,6 @@
 /*
 This file decides which secret key combo was pressed: Z + C is the cheat shot, Z + U plays the "uwu" sound,
-Z + W starts chaos.
+Z + W starts chaos, Z + S stops the ball in the air.
 Edit this file when you want to add or change a key combo.
 Copy one line in COMBOS when you add another combo.
 */
@@ -8,12 +8,13 @@ Copy one line in COMBOS when you add another combo.
 var COMBOS = [
   { keys: ['KeyZ', 'KeyC'], action: 'cheat' },
   { keys: ['KeyZ', 'KeyU'], action: 'uwu' },
-  { keys: ['KeyZ', 'KeyW'], action: 'chaos' }
+  { keys: ['KeyZ', 'KeyW'], action: 'chaos' },
+  { keys: ['KeyZ', 'KeyS'], action: 'stop' }
 ];
 
 // Keys that take part in some combo. game.js remembers which of them are held down.
 // W is also the jump button, so game.js still passes it on to the normal controls.
-export var COMBO_KEYS = { KeyZ: 1, KeyC: 1, KeyU: 1, KeyW: 1 };
+export var COMBO_KEYS = { KeyZ: 1, KeyC: 1, KeyU: 1, KeyW: 1, KeyS: 1 };
 
 // Cheats are locked until the player presses 1 four times in the first 5 seconds of a match.
 export var UNLOCK_KEYS = { Digit1: 1, Numpad1: 1 };

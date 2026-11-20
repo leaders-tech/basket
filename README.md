@@ -12,6 +12,8 @@ After every point the court, the ball, the players, and the hoop change at rando
   start; if someone leaves, their player just stands still.
   To play on the same Wi-Fi, start the app with `make back-lan` and `make front-lan` (see below).
   The host's browser runs the game, so keep the host's tab open (it may be in the background).
+  The browsers try to connect directly to each other (WebRTC) for less lag; "Fast direct connection" means it worked.
+  If it does not work, the game still plays through the server.
 
 Hold the button: your players jump and raise an arm. Let go to shoot. The higher the arm, the stronger the throw.
 Esc or the pause button goes back to the menu. M turns the sound on and off.
@@ -22,6 +24,7 @@ Secret combos (hold both keys at the same time). They are locked: to unlock them
 
 - **Z + C** — cheat shot: if your team holds the ball, it flies straight into the other team's hoop.
 - **Z + U** — plays an "uwu" sound. In an online game both players hear it.
+- **Z + S** — the flying ball stops in the air and falls straight down, whoever threw it.
 - **Z + W** — chaos for 8 seconds: the court spins, a crowd of extra players and balls flies around, players and the
   ball get random kicks, the score jumps to random numbers, and "uwu" plays again and again. The real score comes back
   when the chaos ends. In an online game both players see it.

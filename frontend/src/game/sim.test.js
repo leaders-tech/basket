@@ -128,6 +128,29 @@ describe("game rules", () => {
     expect(Math.abs(dy[3])).toBeLessThan(0.05);
   });
 
+  it("stop-ball combo stops a flying ball and it falls straight down, whoever threw it", () => {
+    for (const thrower of [0, 2]) {
+      const game = new Sim.Game();
+      game.grab(thrower);
+      game.players[thrower].arm = 150;
+      game.throwBall(game.players[thrower]);
+      for (let i = 0; i < 8; i++) game.step();
+      expect(game.stopBall()).toBe(true);
+      const x0 = game.ball.getPosition().x;
+      const y0 = game.ball.getPosition().y;
+      for (let i = 0; i < 10; i++) game.step();
+      expect(Math.abs(game.ball.getPosition().x - x0)).toBeLessThan(0.001);
+      expect(game.ball.getPosition().y).toBeGreaterThan(y0);
+    }
+  });
+
+  it("stop-ball combo does nothing while someone holds the ball", () => {
+    const game = new Sim.Game();
+    game.grab(1);
+    expect(game.stopBall()).toBe(false);
+    expect(game.holder).toBe(1);
+  });
+
   it("ends the match at the win score and a button press starts a new one", () => {
     const game = new Sim.Game();
     game.score = [Sim.WIN_SCORE, 2];

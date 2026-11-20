@@ -62,3 +62,11 @@ describe("cheat unlock", () => {
     expect(unlock.isUnlocked()).toBe(false);
   });
 });
+
+describe("stop-ball combo", () => {
+  it("fires when Z and S are both down", () => {
+    expect(comboFor({ KeyS: true }, "KeyS")).toBeNull();
+    expect(comboFor({ KeyZ: true, KeyS: true }, "KeyS")).toBe("stop");
+    expect(comboFor({ KeyS: true, KeyZ: true }, "KeyZ")).toBe("stop");
+  });
+});

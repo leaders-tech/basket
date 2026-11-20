@@ -311,6 +311,17 @@ import * as pl from "planck";
     return true;
   };
 
+  // Stop-ball combo (keys Z + S): a flying ball stops in the air and falls straight down, whoever threw it.
+  Game.prototype.stopBall = function () {
+    if (this.state === 'over' || this.holder >= 0 || this.magnet >= 0) return false;
+    this.cheat = null;                      // also stops a cheat shot in flight
+    this.ball.setActive(true);
+    this.ball.setLinearVelocity(Vec2(0, 0));
+    this.ball.setAngularVelocity(0);
+    this.events.push('stop');
+    return true;
+  };
+
   // Ball position on the cheat arc at u = 0..1, plus its speed in px/s.
   function cheatPoint(c, u) {
     // x eases in, so the ball is already right above the hoop when it comes down through the rim

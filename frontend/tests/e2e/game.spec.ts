@@ -57,6 +57,14 @@ test("two players meet in an online room", async ({ page, context }) => {
   await expect(guest.getByText(`Room ${code} · you are PURPLE (right)`, { exact: false })).toBeVisible();
   await expect(page.getByText(`Room ${code} · you are GREEN (left)`, { exact: false })).toBeVisible();
 
+  // The two browsers connect directly (WebRTC); then snapshots stop going through the server.
+  await expect(guest.locator("#wrap")).toHaveAttribute("data-link", "direct");
+  await expect(page.locator("#wrap")).toHaveAttribute("data-link", "direct");
+  const serverSnapshots = () => guestFrames.filter((frame) => frame.startsWith('{"t":"s"')).length;
+  const before = serverSnapshots();
+  await guest.waitForTimeout(500);
+  expect(serverSnapshots()).toBe(before);
+
   // Cheats are locked at first: Z + U sends nothing.
   await guest.keyboard.down("z");
   await guest.keyboard.press("u");
@@ -72,11 +80,11 @@ test("two players meet in an online room", async ({ page, context }) => {
   await guest.keyboard.up("z");
   await expect.poll(() => hostFrames.includes('{"t": "u"}') || hostFrames.includes('{"t":"u"}')).toBe(true);
 
-  // Z + W on the guest starts chaos on the host, and the host's snapshots tell the guest about it.
+  // Z + W on the guest asks the host to start chaos.
   await guest.keyboard.down("z");
   await guest.keyboard.press("w");
   await guest.keyboard.up("z");
-  await expect.poll(() => guestFrames.some((frame) => frame.includes('"x":['))).toBe(true);
+  await expect.poll(() => hostFrames.some((frame) => frame.replace(/\s/g, "") === '{"t":"x"}')).toBe(true);
 
   await guest.close();
   await expect(page.getByText("Your opponent left the game.")).toBeVisible();
@@ -127,10 +135,8 @@ test("party room: the admin puts four players into teams 1 against 3 and starts"
     await expect(guest.getByText(`Room ${code} · you are PURPLE (right)`, { exact: false })).toBeVisible();
   }
 
-  // Bob's button press reaches the admin with Bob's id (player 2)
-  await guests[1].keyboard.down("Space");
-  await expect.poll(() => hostFrames.some((f) => f.replace(/\s/g, "") === '{"t":"i","d":1,"from":2}')).toBe(true);
-  await guests[1].keyboard.up("Space");
+  // every guest gets a direct connection to the admin
+  for (const guest of guests) await expect(guest.locator("#wrap")).toHaveAttribute("data-link", "direct");
 
   // nobody can join after the start
   const late = await context.newPage();

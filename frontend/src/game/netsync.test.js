@@ -38,4 +38,12 @@ describe("snapshot buffer", () => {
     expect(pick?.a.n).toBe(5);
     expect(pick?.b).toBeNull();
   });
+
+  it("drops a snapshot that is old or came twice (directly and through the server)", () => {
+    const buf = createSnapshotBuffer(TICK);
+    expect(buf.push({ n: 5 }, 100)).toBe(true);
+    expect(buf.push({ n: 5 }, 101)).toBe(false);
+    expect(buf.push({ n: 4 }, 102)).toBe(false);
+    expect(buf.push({ n: 6 }, 103)).toBe(true);
+  });
 });

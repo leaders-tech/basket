@@ -23,8 +23,13 @@
     Unit tests: `sim.test.js`, `render.test.js`, `combos.test.js`, `party.test.js`, `bot.test.js`.
   - Strong computer player for 1 PLAYER mode: `frontend/src/game/bot.js` (`createSmartBot`). It looks ahead in a copy
     of the game (`saveState` / `loadState`): with the ball it tries throw timings until one goes in, without the ball
-    it tries jump timings until one gets the ball. When it starts thinking it rebuilds the real game from its own save,
-    so the copy matches exactly. The simple `Sim.Bot` still plays the menu demo.
+    it tries jump timings (for either player or both) until one gets the ball. When it starts thinking it rebuilds the
+    real game from its own save, so the copy matches exactly. `update()` returns one button per player: each computer
+    player has its own button (`Game.setPlayerKeys`), the human's two players share one. The simple `Sim.Bot` still
+    plays the menu demo.
+  - 1 PLAYER handicap: `new Sim.Game({ hoopShrink: [HUMAN_HOOP_SHRINK, 0] })` in `game.js` (1 px). `hoopShrink[team]`
+    makes the hoop that team shoots at smaller by hitboxes (rim fixtures reach further in, narrower scoring check);
+    it is drawn the same. Measured: 1 px cuts human-like baskets by ~30%, 2 px by ~70%.
   - Online netcode (rollback): the host runs the real game and sends `game.saveState()` 30 times a second. A guest
     keeps its own copy (`lg` in `game.js`), loads each host state and replays its own button presses on top, so its
     player reacts at once. Guests send button changes with the tick they are meant for (`at`); the host applies them

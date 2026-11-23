@@ -115,6 +115,10 @@ import * as pl from "planck";
     this.seed = Math.floor(Math.random() * 4294967296) >>> 0;
     this.tick = 0;           // number of physics steps so far
     this.pkeys = null;       // party mode: one button per player instead of one per team (see setPlayerKeys)
+    // Pixels taken off each side of the hoop a team shoots at (1 PLAYER: the hoop the human shoots at is a bit smaller,
+    // so the computer has it easier). The hoop looks the same; its rim hitboxes reach further in and the "it went in"
+    // check is narrower.
+    this.hoopShrink = (opts && opts.hoopShrink) || [0, 0];
     this.score = [0, 0];
     this.keys = [false, false];
     this.state = 'play';           // play | goal | over
@@ -179,8 +183,10 @@ import * as pl from "planck";
     L.hoops.forEach(function (h, hi) {
       var bx = (h.boardIn + h.boardOut) / 2;
       var f1 = st.createFixture(pl.Box(1.5 * S, (h.boardBot - h.boardTop) / 2 * S, P(bx, (h.boardTop + h.boardBot) / 2), 0), { friction: 0, restitution: 0, userData: { kind: 'board', hoop: hi } });
-      var f2 = st.createFixture(pl.Box(Math.abs(h.backEnd - h.boardIn) / 2 * S, 2 * S, P((h.backEnd + h.boardIn) / 2, h.rimY), 0), { friction: 0, restitution: 0, userData: { kind: 'rim', hoop: hi } });
-      var f3 = st.createFixture(pl.Circle(P(h.frontX, h.rimY), 2 * S), { friction: 0, restitution: 0, userData: { kind: 'rim', hoop: hi } });
+      // a smaller hoop (hoopShrink for the team that shoots here): the back rim and the front rim reach further in
+      var shrink = self.hoopShrink[hi === 1 ? 0 : 1], backEnd = h.backEnd + h.d * shrink;
+      var f2 = st.createFixture(pl.Box(Math.abs(backEnd - h.boardIn) / 2 * S, 2 * S, P((backEnd + h.boardIn) / 2, h.rimY), 0), { friction: 0, restitution: 0, userData: { kind: 'rim', hoop: hi } });
+      var f3 = st.createFixture(pl.Circle(P(h.frontX, h.rimY), (2 + shrink) * S), { friction: 0, restitution: 0, userData: { kind: 'rim', hoop: hi } });
       self.hoopFix[hi] = [f1, f2, f3];
     });
     this.hoopOff = [0, 0];
@@ -513,8 +519,9 @@ import * as pl from "planck";
       for (var hi = 0; hi < 2; hi++) {
         var h = this.L.hoops[hi];
         var line = h.rimY + 2;
-        if (this.prevBallY < line && by >= line && bx > h.openA + br * 0.3 && bx < h.openB - br * 0.3 && this.ball.getLinearVelocity().y > 0) {
-          var team = hi === 1 ? 0 : 1;   // the right hoop gives a point to team 0
+        var team = hi === 1 ? 0 : 1;   // the right hoop gives a point to team 0
+        var edge = br * 0.3 + this.hoopShrink[team];
+        if (this.prevBallY < line && by >= line && bx > h.openA + edge && bx < h.openB - edge && this.ball.getLinearVelocity().y > 0) {
           this.score[team]++;
           this.lastScorer = team;
           this.slow = 0.7;
@@ -581,7 +588,7 @@ import * as pl from "planck";
     'chaosKick', 'chaosUwu', 'holder', 'magnet', 'idle', 'prevBallY'];
   var PLAYER_FIELDS = ['angular', 'jump', 'moreJump', 'wait', 'upArrow', 'onGround', 'prevKey', 'arm', 'armed', 'regrab', 'armTouch'];
   Game.prototype.saveState = function () {
-    var st = { round: this.round, cfg: this.cfg, teams: this.teams, score: this.score.slice(), hoopOff: this.hoopOff.slice(),
+    var st = { round: this.round, cfg: this.cfg, teams: this.teams, score: this.score.slice(), hoopOff: this.hoopOff.slice(), hoopShrink: this.hoopShrink.slice(),
       keys: this.keys.slice(), pkeys: this.pkeys ? this.pkeys.slice() : null, fakeScore: this.fakeScore ? this.fakeScore.slice() : null,
       cheat: this.cheat ? JSON.parse(JSON.stringify(this.cheat)) : null };
     for (var i = 0; i < SCALARS.length; i++) st[SCALARS[i]] = typeof this[SCALARS[i]] === 'number' ? q(this[SCALARS[i]]) : this[SCALARS[i]];
@@ -598,6 +605,7 @@ import * as pl from "planck";
     if (st.round !== this.round || !this.cfg || st.cfg.seed !== this.cfg.seed) this.L = layout(st.cfg);
     this.cfg = st.cfg;
     this.round = st.round;
+    this.hoopShrink = st.hoopShrink ? st.hoopShrink.slice() : [0, 0];
     this.build();
     for (var i = 0; i < SCALARS.length; i++) this[SCALARS[i]] = st[SCALARS[i]];
     this.score = st.score.slice(); this.hoopOff = st.hoopOff.slice(); this.keys = st.keys.slice();

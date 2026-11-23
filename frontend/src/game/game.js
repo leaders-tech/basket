@@ -28,7 +28,9 @@ export function startGame() {
   var mode = 'menu';            // menu | cpu | local | lobby | host | guest
   var game = new Sim.Game();
   var bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];   // the simple bots play the menu demo
-  var smartBot = null;   // the strong computer player in 1 PLAYER mode (bot.js)
+  var smartBot = null;   // the strong computer player in 1 PLAYER mode (bot.js); each of its players has its own button
+  // 1 PLAYER: pixels taken off each side of the scoring zone of the hoop YOU shoot at, so the computer has it easier
+  var HUMAN_HOOP_SHRINK = 1;
   var keys = { team0: false, team1: false, mine: false };
   var remoteKey = false, ws = null, roomCode = null;
   var tickN = 0, netEvents = [];
@@ -61,7 +63,7 @@ export function startGame() {
   var BUTTON = 'W, ↑, Space or click';
   function startLocal(m) {
     closeNet(); panel(null);
-    mode = m; game = new Sim.Game();
+    mode = m; game = new Sim.Game(m === 'cpu' ? { hoopShrink: [HUMAN_HOOP_SHRINK, 0] } : undefined);
     bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
     smartBot = createSmartBot(1);
     keys.team0 = keys.team1 = keys.mine = false;
@@ -534,7 +536,12 @@ export function startGame() {
     if (mode === 'host') applyDueInputs();
     var k0, k1;
     if (mode === 'menu' || mode === 'lobby') { k0 = bots[0].update(game); k1 = bots[1].update(game); }
-    else if (mode === 'cpu') { k0 = keys.mine; k1 = smartBot.update(game, keys.mine); }
+    else if (mode === 'cpu') {
+      // your two players share your button; each computer player has its own
+      var bk = smartBot.update(game, keys.mine);
+      game.setPlayerKeys(game.teams.map(function (t, i) { return t === 0 ? keys.mine : !!bk[i]; }));
+      k0 = keys.mine; k1 = false;
+    }
     else if (mode === 'local') { k0 = keys.team0; k1 = keys.team1; }
     else if (mode === 'host' && party) {
       // every player has their own button; any button after the end of a match starts a rematch

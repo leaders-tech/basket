@@ -4,6 +4,7 @@ Edit this file when the look of the game changes (colors, courts, on-screen text
 Do not copy this file. Add a new court as one more branch in background() and a new text label in hud().
 */
 // The canvas is 190 px tall. Its width grows with the screen from 290 to 420 px.
+import { BOOSTS, LIFE as BOOST_LIFE } from "./boosts.js";
   var H = 190, FIELD_W = 290, GROUND = 142;
   var FONT = '"Press Start 2P", monospace';
 
@@ -277,6 +278,7 @@ Do not copy this file. Add a new court as one more branch in background() and a 
     this.canvas = canvas; this.ctx = canvas.getContext('2d');
     this.W = 290; this.key = null; this.t = 0;
     this.net = [0, 0]; this.flash = 0; this.shake = 0; this.pops = [];
+    this.sparks = [];
     this.flakes = []; for (var i = 0; i < 70; i++) this.flakes.push({ x: Math.random() * 400, y: Math.random() * H, v: 8 + Math.random() * 14, s: Math.random() < 0.25 ? 2 : 1 });
   } }
   Renderer.prototype.resize = function (W) {
@@ -297,7 +299,107 @@ Do not copy this file. Add a new court as one more branch in background() and a 
   };
   Renderer.prototype.onEvent = function (e, v) {
     if (e === 'score' && v) { this.net[v.bodies[v.L.teams.length * 7] > 145 ? 1 : 0] = 0.4; this.flash = 0.25; this.shake = 0.2; }
+    if (e.indexOf('boost:') === 0) {
+      // "boost:<kind>:<player>:<x>:<y>": a burst of sparks where it was, and its name rising over the player
+      var parts = e.split(':'), B = BOOSTS[parts[1]];
+      if (!B) return;
+      var x = +parts[3], y = +parts[4];
+      for (var k = 0; k < 14; k++) {
+        var a = k / 14 * Math.PI * 2, sp = 25 + Math.random() * 35;
+        this.sparks.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: 0, life: 0.45 + Math.random() * 0.25, c: k % 3 ? B.color : '#ffffff' });
+      }
+      this.pops = this.pops.filter(function (p) { return p.idx !== +parts[2]; });   // one name per player at a time
+      this.pops.push({ text: (B.good ? '+' : '') + B.label + (B.good ? '' : '!'), color: B.color, good: B.good, idx: +parts[2], t: 0 });
+    }
   };
+
+  // ---------- boosts ----------
+  // 7 x 7 pixel icons; '#' is the boost color, 'w' is white.
+  var ICONS = {
+    jump: ['...w...', '..www..', '.wwwww.', '...#...', '..#.#..', '.#...#.', '..###..'],
+    speed: ['....##.', '...##..', '..##...', '.#####.', '...##..', '..##...', '.##....'],
+    arms: ['.#.#.#.', '.#.#.#.', '.#####.', '######.', '.#####.', '..###..', '..###..'],
+    slow: ['.......', '..www..', '.w...w.', '.w.w.w.', '.w..ww.', '######.', '#######'],
+    freeze: ['#..#..#', '.#.#.#.', '..###..', '#######', '..###..', '.#.#.#.', '#..#..#']
+  };
+  var iconCache = {};
+  function boostIcon(kind) {
+    if (iconCache[kind]) return iconCache[kind];
+    var rows = ICONS[kind], c = mk(7, 7), x = c.getContext('2d'), col = BOOSTS[kind].color;
+    rows.forEach(function (row, yy) { for (var xx = 0; xx < 7; xx++) if (row[xx] !== '.') px(x, row[xx] === 'w' ? '#ffffff' : col, xx, yy, 1, 1); });
+    iconCache[kind] = outline(c, '#17120f');
+    return iconCache[kind];
+  }
+  function ring(ctx, cx, cy, r, c) {
+    for (var a = 0; a < 48; a++) { var t = a / 48 * Math.PI * 2; px(ctx, c, Math.round(cx + Math.cos(t) * r), Math.round(cy + Math.sin(t) * r), 1, 1); }
+  }
+
+  // Boosts waiting on the court: a soft glow, a gold (good) or red (bad) ring, the icon, and two orbiting sparkles.
+  Renderer.prototype.drawItems = function (ctx, items, ox) {
+    var t = this.t;
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i], B = BOOSTS[it.kind];
+      if (!B) continue;
+      if (it.age > BOOST_LIFE - 2 && Math.floor(it.age * 8) % 2 === 0) continue;   // blink before it disappears
+      var grow = Math.min(1, it.age / 0.25);   // pops in
+      var x = Math.round(it.x + ox), y = Math.round(it.y + Math.sin(t * 3 + it.x) * 2);
+      var rim = B.good ? '#ffd34d' : '#ff4f6d';
+      ctx.globalAlpha = 0.18 + 0.1 * Math.sin(t * 6 + i);
+      disk(ctx, x, y, Math.round(10 * grow), B.color);
+      ctx.globalAlpha = 1;
+      disk(ctx, x, y, Math.round(7 * grow), '#17120f');
+      disk(ctx, x, y, Math.round(6 * grow), B.good ? '#3b2a08' : '#3a0b16');
+      ring(ctx, x, y, 6 * grow, rim);
+      if (grow >= 1) {
+        var icon = boostIcon(it.kind);
+        ctx.drawImage(icon, x - 4, y - 4);
+        for (var k = 0; k < 2; k++) {
+          var a = t * 4 + k * Math.PI;
+          px(ctx, '#ffffff', Math.round(x + Math.cos(a) * 9), Math.round(y + Math.sin(a) * 9), 1, 1);
+        }
+      }
+    }
+  };
+  Renderer.prototype.drawSparks = function (ctx, ox, dt) {
+    this.sparks = this.sparks.filter(function (s) {
+      s.t += dt; s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 60 * dt;
+      if (s.t > s.life) return false;
+      px(ctx, s.c, Math.round(s.x + ox), Math.round(s.y), s.t < s.life * 0.5 ? 2 : 1, s.t < s.life * 0.5 ? 2 : 1);
+      return true;
+    });
+  };
+  // The boost's name rises from the player's head and fades out.
+  Renderer.prototype.drawPops = function (ctx, b, ox, dt) {
+    this.pops = this.pops.filter(function (p) {
+      p.t += dt;
+      if (p.t > 1.3 || p.idx * 7 + 4 >= b.length) return false;
+      ctx.globalAlpha = Math.max(0, Math.min(1, (1.3 - p.t) / 0.4));
+      text(ctx, p.text, 8, b[p.idx * 7 + 3] + ox, b[p.idx * 7 + 4] - 34 - p.t * 12, p.color, '#17120f');
+      ctx.globalAlpha = 1;
+      return true;
+    });
+  };
+  // Icons of the boosts a player has right now, side by side above the head.
+  Renderer.prototype.fxIcons = function (ctx, fx, cx, y) {
+    var on = Object.keys(BOOSTS).filter(function (k) { return fx[k] > 0; });
+    var x0 = Math.round(cx - on.length * 10 / 2);
+    for (var i = 0; i < on.length; i++) {
+      if (fx[on[i]] < 1.5 && Math.floor(this.t * 8) % 2 === 0) continue;   // blinks when it is about to end
+      ctx.drawImage(boostIcon(on[i]), x0 + i * 10, Math.round(y) - 9);
+    }
+  };
+  // A frozen player stands in a block of ice.
+  function iceBlock(ctx, b, o, ox, t) {
+    var x1 = Math.min(b[o], b[o + 3]) + ox - 7, x2 = Math.max(b[o], b[o + 3]) + ox + 7;
+    var y1 = Math.min(b[o + 1], b[o + 4]) - 8, y2 = Math.max(b[o + 1], b[o + 4]) + 1;
+    x1 = Math.round(x1); y1 = Math.round(y1);
+    var w = Math.round(x2) - x1, h = Math.round(y2) - y1;
+    ctx.fillStyle = 'rgba(170,225,255,0.45)'; ctx.fillRect(x1, y1, w, h);
+    ctx.fillStyle = 'rgba(235,250,255,0.95)';
+    ctx.fillRect(x1, y1, w, 1); ctx.fillRect(x1, y1 + h - 1, w, 1); ctx.fillRect(x1, y1, 1, h); ctx.fillRect(x1 + w - 1, y1, 1, h);
+    var shine = Math.floor(t * 2) % 2;
+    ctx.fillRect(x1 + 2, y1 + 3 + shine, 1, 4); ctx.fillRect(x1 + 3, y1 + 2 + shine, 1, 1); ctx.fillRect(x2 - 4, y2 - 7, 1, 3);
+  }
 
   Renderer.prototype.hoop = function (ctx, h, front, ox) {
     var rimL = Math.min(h.backEnd, h.frontX) + ox, rimR = Math.max(h.backEnd, h.frontX) + ox, ry = h.rimY;
@@ -342,8 +444,9 @@ Do not copy this file. Add a new court as one more branch in background() and a 
     }
   };
 
-  function draw(ctx, img, x, y, ang, flip, ox, oy) {
-    ctx.save(); ctx.translate(Math.round(x), Math.round(y)); ctx.rotate(ang); if (flip) ctx.scale(-1, 1);
+  // sy (optional): stretch the picture along its length (long arms boost)
+  function draw(ctx, img, x, y, ang, flip, ox, oy, sy) {
+    ctx.save(); ctx.translate(Math.round(x), Math.round(y)); ctx.rotate(ang); if (flip) ctx.scale(-1, 1); if (sy) ctx.scale(1, sy);
     ctx.drawImage(img, -ox, -oy); ctx.restore();
   }
 
@@ -396,14 +499,21 @@ Do not copy this file. Add a new court as one more branch in background() and a 
       var shx = b[o] + sxl * Math.cos(a) - syl * Math.sin(a), shy = b[o + 1] + sxl * Math.sin(a) + syl * Math.cos(a);
       sp.shoulder = [shx + ox, shy];
       var raised = Math.abs(b[o + 6]) > 100;
-      if (v.holder !== i && !raised) draw(ctx, sp.arm, shx + ox, shy, b[o + 6] * Math.PI / 180, false, 2, 2);
+      var fxi = v.fx ? v.fx[i] : null, armLen = fxi && fxi.arms > 0 ? 1.5 : 1;
+      if (v.holder !== i && !raised) draw(ctx, sp.arm, shx + ox, shy, b[o + 6] * Math.PI / 180, false, 2, 2, armLen);
       draw(ctx, sp.body, b[o] + ox, b[o + 1], b[o + 2], flip, 8, hgt + 1);
       draw(ctx, sp.head, b[o + 3] + ox, b[o + 4], b[o + 5], flip, 6, 7);
-      if (v.holder !== i && raised) draw(ctx, sp.arm, shx + ox, shy, b[o + 6] * Math.PI / 180, false, 2, 2);
+      if (v.holder !== i && raised) draw(ctx, sp.arm, shx + ox, shy, b[o + 6] * Math.PI / 180, false, 2, 2, armLen);
+      if (fxi && fxi.freeze > 0) iceBlock(ctx, b, o, ox, this.t);
     }
     // ball
     draw(ctx, this.ball, b[bi] + ox, b[bi + 1], b[bi + 2], false, this.ball.width / 2, this.ball.height / 2);
-    if (v.holder >= 0) { var ho = v.holder * 7, s2 = this.spr[v.holder]; draw(ctx, s2.arm, s2.shoulder[0], s2.shoulder[1], b[ho + 6] * Math.PI / 180, false, 2, 2); }
+    if (v.holder >= 0) {
+      var ho = v.holder * 7, s2 = this.spr[v.holder], hfx = v.fx ? v.fx[v.holder] : null;
+      draw(ctx, s2.arm, s2.shoulder[0], s2.shoulder[1], b[ho + 6] * Math.PI / 180, false, 2, 2, hfx && hfx.arms > 0 ? 1.5 : 1);
+    }
+    if (v.items) this.drawItems(ctx, v.items, ox);
+    this.drawSparks(ctx, ox, dt);
     if (b[bi + 1] < -4) { var ax = Math.round(b[bi] + ox); px(ctx, '#fff', ax, 2, 1, 1); px(ctx, '#fff', ax - 1, 3, 3, 1); px(ctx, '#fff', ax - 2, 4, 5, 1); }
 
     this.hoop(ctx, L.hoops[0], true, ox);
@@ -433,7 +543,11 @@ Do not copy this file. Add a new court as one more branch in background() and a 
       if (hint || (v.me === i && v.state !== 'over')) {
         px(ctx, T.ui, Math.round(hx) - 2, Math.round(hy) + 1, 5, 1); px(ctx, T.ui, Math.round(hx) - 1, Math.round(hy) + 2, 3, 1); px(ctx, T.ui, Math.round(hx), Math.round(hy) + 3, 1, 1);
       }
+      // active boosts: small icons just above the head (above the arrow if there is one), not while the
+      // start-of-round label is shown there, and below where a boost's name rises after a pickup
+      if (!hint && v.fx && v.fx[i]) this.fxIcons(ctx, v.fx[i], hx, v.me === i ? hy : hy + 10);
     }
+    this.drawPops(ctx, b, ox, dt);
     if (!v.menu) this.hud(v);
   };
 
@@ -522,7 +636,9 @@ Do not copy this file. Add a new court as one more branch in background() and a 
     for (var i = 0; i < items.length; i++) {
       var it = items[i], hov = hover === it.id, by = it.y + (hov ? -1 : 0);
       var tc = ptext(it.label, 8, '#2a1606', null);
-      chip(ctx, it.x, by, it.w, it.h, hov ? '#ffcf5a' : '#ffb52e', '#5a3208');
+      // a toggle button (it.on true/false) is green when on and grey when off
+      var face = it.on === true ? (hov ? '#a6f08f' : '#7ddc6b') : it.on === false ? (hov ? '#c4c8d2' : '#a9adbb') : (hov ? '#ffcf5a' : '#ffb52e');
+      chip(ctx, it.x, by, it.w, it.h, face, it.on === undefined ? '#5a3208' : '#2a2f38');
       ctx.drawImage(tc, Math.round(it.x + it.w / 2 - tc.width / 2), Math.round(by + it.h / 2 - tc.height / 2) + 1);
     }
     var help = ptext('W / ↑ / SPACE / CLICK', 8, 'rgba(255,255,255,0.8)', '#17120f');

@@ -21,6 +21,9 @@ export function GamePage() {
             <h2>Online game</h2>
             <p>Create a room and send the code to friends, or type a friend's code.</p>
             <input id="name-in" className="field" maxLength={12} placeholder="Your name" autoComplete="off" spellCheck={false} aria-label="Your name" />
+            <label className="check">
+              <input type="checkbox" id="boosts-in" /> Boosts (power-ups) in rooms I create
+            </label>
             <div className="stack" style={{ marginTop: "0.7em" }}>
               <button type="button" className="btn" id="b-create">
                 Create room (1 vs 1)

@@ -8,6 +8,7 @@ import { Sim } from "./sim.js";
 import { Render } from "./render.js";
 import { createSound } from "./sound.js";
 import { createSmartBot } from "./bot.js";
+import { BOOSTS } from "./boosts.js";
 import { COMBO_KEYS, UNLOCK_KEYS, comboFor, createCheatUnlock } from "./combos.js";
 import { createPeer } from "./p2p.js";
 import { MAX_PLAYERS, addPlayer, canStart, playOrder, removePlayer, setTeam, teamCounts } from "./party.js";
@@ -44,6 +45,16 @@ export function startGame() {
   var hover = null, menuItems = [];
   // Secret combos (see combos.js): locked until you press 1 four times in the first 5 seconds of a match.
   var held = {}, cheats = createCheatUnlock(5000, 4);
+  // Boosts (power-ups, boosts.js): on or off for the games you start or host. Toggled in the menu and the online
+  // panel; remembered in this browser.
+  var boostsOn = false;
+  try { boostsOn = localStorage.getItem('wobble-boosts') === '1'; } catch { }
+  function setBoosts(on) {
+    boostsOn = on;
+    try { localStorage.setItem('wobble-boosts', on ? '1' : '0'); } catch { }
+    $('boosts-in').checked = on;
+    buildMenu();
+  }
   // Party room (3+ players): null in other modes.
   // { host, myId, roster: [{ id, name, team }], ids: player id of every game player, myIdx: my game player }
   var party = null, remoteKeys = {};
@@ -63,7 +74,7 @@ export function startGame() {
   var BUTTON = 'W, ↑, Space or click';
   function startLocal(m) {
     closeNet(); panel(null);
-    mode = m; game = new Sim.Game(m === 'cpu' ? { hoopShrink: [HUMAN_HOOP_SHRINK, 0] } : undefined);
+    mode = m; game = new Sim.Game({ hoopShrink: m === 'cpu' ? [HUMAN_HOOP_SHRINK, 0] : [0, 0], boosts: boostsOn });
     bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
     smartBot = createSmartBot(1);
     keys.team0 = keys.team1 = keys.mine = false;
@@ -76,6 +87,7 @@ export function startGame() {
     mode = 'menu'; game = new Sim.Game(); bots = [new Sim.Bot(0, 1), new Sim.Bot(1, 1)];
   }
   function openOnline() {
+    $('boosts-in').checked = boostsOn;
     $('net-err').textContent = ''; $('code-in').value = '';
     try { $('name-in').value = localStorage.getItem('wobble-name') || ''; } catch { }
     panel('p-online');
@@ -95,6 +107,7 @@ export function startGame() {
     connect(function () { send({ t: 'create-party', name: name }); });
   });
   on($('b-party-start'), 'click', function () { Sfx.play('click'); startParty(); });
+  on($('boosts-in'), 'change', function () { setBoosts(this.checked); });
   on($('b-party-leave'), 'click', function () { Sfx.play('click'); toMenu(); });
   on($('name-in'), 'keydown', function (e) { e.stopPropagation(); if (e.key === 'Escape') panel(null); });
   on($('b-join'), 'click', function () { Sfx.play('click'); joinByInput(); });
@@ -131,7 +144,7 @@ export function startGame() {
     panel('p-party');
   }
   // The admin changed the list: show it and send it to everyone.
-  function lobbyChanged() { renderLobby(); send({ t: 'lobby', players: party.roster }); }
+  function lobbyChanged() { renderLobby(); send({ t: 'lobby', players: party.roster, boosts: boostsOn }); }
   function renderLobby() {
     var list = $('party-list'), counts = teamCounts(party.roster);
     list.innerHTML = '';
@@ -158,7 +171,9 @@ export function startGame() {
       }
       list.appendChild(li);
     });
-    $('party-count').textContent = party.roster.length + ' / ' + MAX_PLAYERS + ' players · GREEN ' + counts[0] + ' · PURPLE ' + counts[1];
+    var boostsHere = party.host ? boostsOn : !!party.boosts;
+    $('party-count').textContent = party.roster.length + ' / ' + MAX_PLAYERS + ' players · GREEN ' + counts[0] + ' · PURPLE ' + counts[1] +
+      ' · boosts ' + (boostsHere ? 'ON' : 'OFF');
     $('b-party-start').classList.toggle('hidden', !party.host);
     $('b-party-start').disabled = !canStart(party.roster);
     $('party-note').textContent = !party.host ? 'Waiting for the admin to start the game.'
@@ -184,7 +199,7 @@ export function startGame() {
     send({ t: 'start', players: party.roster });
     var order = beginParty(party.roster);
     remoteKeys = {};
-    game = new Sim.Game({ teams: order.map(function (p) { return p.team; }) });
+    game = new Sim.Game({ teams: order.map(function (p) { return p.team; }), boosts: boostsOn });
     mode = 'host';
   }
 
@@ -263,7 +278,7 @@ export function startGame() {
         netFail(m.msg); if (ws) { ws.onclose = null; ws.close(); ws = null; }
         break;
       case 'peer-joined':
-        mode = 'host'; game = new Sim.Game(); remoteKey = false; panel(null); cheats.start(performance.now());
+        mode = 'host'; game = new Sim.Game({ boosts: boostsOn }); remoteKey = false; panel(null); cheats.start(performance.now());
         startPeer('duo');
         hint('Room ' + roomCode + ' · you are GREEN (left) · button: ' + BUTTON + ' · Esc: leave');
         Sfx.play('round'); toast('Your opponent joined!', 2000);
@@ -284,7 +299,7 @@ export function startGame() {
         break;
       case 'lobby':
         if (mode !== 'lobby' || !party || party.host) break;
-        party.roster = m.players; renderLobby();
+        party.roster = m.players; party.boosts = !!m.boosts; renderLobby();
         break;
       case 'start':
         if (mode !== 'lobby' || !party || party.host) break;
@@ -431,6 +446,7 @@ export function startGame() {
       var id = itemAt(p);
       if (id) Sfx.play('click');
       if (id === '1p') startLocal('cpu'); else if (id === '2p') startLocal('local'); else if (id === 'net') openOnline();
+      else if (id === 'boosts') setBoosts(!boostsOn);
       return;
     }
     if (p.x > R.W - 16 && p.y < 20) { toMenu(); return; }  // pause button: back to the menu
@@ -442,7 +458,9 @@ export function startGame() {
   // ---------- events ----------
   var currentView = null;
   function handleEvent(e) {
-    if ((mode !== 'menu' && mode !== 'lobby') || e === 'uwu-chaos') Sfx.play(e);   // the menu demo is quiet, except for chaos
+    var quiet = mode === 'menu' || mode === 'lobby';   // the menu demo is quiet, except for chaos
+    if (e.indexOf('boost:') === 0) { if (!quiet) Sfx.play(BOOSTS[e.split(':')[1]].good ? 'boost-good' : 'boost-bad'); }
+    else if (!quiet || e === 'uwu-chaos') Sfx.play(e);
     if (currentView) R.onEvent(e, currentView);
   }
 
@@ -587,6 +605,7 @@ export function startGame() {
     }
     return { L: g.L, key: 'r' + g.round + '_' + g.cfg.seed, bodies: bodies, score: g.shownScore(), state: g.state, timer: g.timer,
       chaos: chaosInfo(g), lastScorer: g.lastScorer, roundTime: g.roundTime, holder: g.holder, hints: playerHints(g.teams),
+      items: g.items, fx: g.players.map(function (p) { return p.fx; }),
       menu: mode === 'menu' || mode === 'lobby', winLabel: win, me: party && (mode === 'host' || mode === 'guest') ? party.myIdx : -1, status: null };
   }
   function hostView() { return gameView(game, game.bodies()); }
@@ -602,7 +621,8 @@ export function startGame() {
     menuItems = [
       { id: '1p', x: x, y: 60, w: bw, h: bh, label: '1 PLAYER' },
       { id: '2p', x: x, y: 86, w: bw, h: bh, label: '2 PLAYERS' },
-      { id: 'net', x: x, y: 112, w: bw, h: bh, label: 'ONLINE' }
+      { id: 'net', x: x, y: 112, w: bw, h: bh, label: 'ONLINE' },
+      { id: 'boosts', x: x, y: 138, w: bw, h: bh, label: boostsOn ? 'BOOSTS: ON' : 'BOOSTS: OFF', on: boostsOn }
     ];
   }
 

@@ -101,6 +101,7 @@ test("party room: the admin puts four players into teams 1 against 3 and starts"
   await page.getByRole("button", { name: "Create party room" }).click();
   await expect(page.getByRole("alert")).toHaveText("Type your name first.");
   await page.getByLabel("Your name").fill("Admin");
+  await page.getByLabel("Boosts (power-ups) in rooms I create").check();
   await page.getByRole("button", { name: "Create party room" }).click();
   await expect(page.getByRole("heading", { name: "Party room" })).toBeVisible();
   const code = (await page.locator("#party-code").textContent()) ?? "";
@@ -123,6 +124,8 @@ test("party room: the admin puts four players into teams 1 against 3 and starts"
   // new players go to the smaller team: Admin GREEN, Ann PURPLE, Bob GREEN, Cid PURPLE
   await expect(page.getByText("4 / 8 players · GREEN 2 · PURPLE 2")).toBeVisible();
   await expect(guests[2].getByText("Waiting for the admin to start the game.")).toBeVisible();
+  // everyone sees that the admin turned boosts on
+  await expect(guests[2].getByText("boosts ON", { exact: false })).toBeVisible();
 
   // the admin moves Bob to PURPLE: 1 against 3, and the guests see it too
   await page.getByRole("button", { name: "Put Bob in PURPLE" }).click();

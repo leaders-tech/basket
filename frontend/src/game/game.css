@@ -110,3 +110,7 @@ Copy a block here when you add another small game panel.
 .game-root .tlabel { flex: none; font: 600 0.72em -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 .game-root .tlabel.g { color: #9ff0c4; }
 .game-root .tlabel.p { color: #d2b8ff; }
+
+/* "Boosts" checkbox in the online panel */
+.game-root .check { display: flex; align-items: center; justify-content: center; gap: 0.45em; margin-top: 0.6em; color: var(--muted); font-size: 0.8em; cursor: pointer; }
+.game-root .check input { width: 1.1em; height: 1.1em; accent-color: #7ddc6b; cursor: pointer; }

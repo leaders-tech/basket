@@ -6,6 +6,7 @@ Do not copy this file. Add a new court, ball, player type, or hoop as one more e
 // Units: field pixels (290 x 190), Y axis points down, angles in degrees (clockwise).
 // Inside planck everything is in meters: 1 px = 0.02 m.
 import * as pl from "planck";
+import { ARMS_REACH, JUMP_BOOST, KINDS as BOOST_KINDS, SLOW_ARM, SLOW_JUMP, SPEED_ARM, SPEED_SIDEWAYS, newFx, resetBoosts, stepBoosts } from "./boosts.js";
 
   var Vec2 = pl.Vec2;
   var S = 0.02;                   // meters per pixel
@@ -34,7 +35,7 @@ import * as pl from "planck";
   var BALLS = {
     normal: { name: 'Ball',         r: 5,   density: 0.1,  restitution: 0.7,  damping: 0.3,  friction: 1 },
     heavy:  { name: 'Heavy ball',   r: 5.5, density: 3.0,  restitution: 0.25, damping: 0.15, friction: 1 },
-    beach:  { name: 'Beach ball',   r: 6.5, density: 0.03, restitution: 0.85, damping: 0.55, friction: 1 },
+    beach:  { name: 'Beach ball',   r: 6.5, density: 0.03, restitution: 0.85, damping: 0.55, friction: 1, hoopBonus: 6 },
     small:  { name: 'Small ball', r: 4,  density: 0.1,  restitution: 0.8,  damping: 0.3,  friction: 1 }
   };
   var CHARS = {
@@ -88,7 +89,14 @@ import * as pl from "planck";
     if (cfg.chars !== 'normal') parts.push(ch.name);
     if (cfg.goal !== 'normal') parts.push(goal.name);
     return { cfg: cfg, place: cfg.place, ballKind: cfg.ball, ball: ball, chars: ch, goal: goal, looks: looks, teams: teams,
-      hoops: [hoopGeom(-1, goal), hoopGeom(1, goal)], titleParts: parts, title: parts.join(' · ') };
+      hoops: [hoopGeom(-1, fitHoop(goal, ball)), hoopGeom(1, fitHoop(goal, ball))], titleParts: parts, title: parts.join(' · ') };
+  }
+
+  // A big ball (the beach ball) needs a wider hoop: ball.hoopBonus pixels are added to the opening.
+  // Without it the beach ball (13 px wide in a 13.5 px gap) almost never went in, and never with the 1 PLAYER
+  // smaller hoop. With +6 it goes in about as often as the normal ball (measured on human-like throws).
+  function fitHoop(goal, ball) {
+    return { name: goal.name, rimY: goal.rimY, open: goal.open + (ball.hoopBonus || 0) };
   }
 
   // hoop shape: side -1 is the left hoop, +1 is the right hoop
@@ -119,6 +127,7 @@ import * as pl from "planck";
     // so the computer has it easier). The hoop looks the same; its rim hitboxes reach further in and the "it went in"
     // check is narrower.
     this.hoopShrink = (opts && opts.hoopShrink) || [0, 0];
+    this.boostsOn = !!(opts && opts.boosts);   // boosts (power-ups) appear on the court, see boosts.js
     this.score = [0, 0];
     this.keys = [false, false];
     this.state = 'play';           // play | goal | over
@@ -195,6 +204,7 @@ import * as pl from "planck";
     var xs = spawnXs(this.teams);
     this.players = [];
     for (var i = 0; i < this.teams.length; i++) this.players.push(this.makePlayer(i, xs[i]));
+    resetBoosts(this);
 
     // ball
     this.ball = null;
@@ -253,7 +263,7 @@ import * as pl from "planck";
     var head = world.createBody({ type: 'dynamic', position: P(x, GROUND - h - 2.5) });
     head.createFixture(pl.Circle(4.5 * S), { density: 1, friction: 0, restitution: 0, filterGroupIndex: group, userData: { kind: 'head', p: idx } });
     world.createJoint(pl.RevoluteJoint({ enableLimit: true, lowerAngle: -10 * Math.PI / 180, upperAngle: 10 * Math.PI / 180 }, body, head, P(x, GROUND - h + 3)));
-    return { idx: idx, team: team, facing: facing, body: body, head: head, h: h, reach: ch.arm,
+    return { idx: idx, team: team, facing: facing, body: body, head: head, h: h, reach: ch.arm, baseReach: ch.arm, fx: newFx(),
       angular: 0, jump: false, moreJump: 0, wait: 0, upArrow: false, onGround: true, prevKey: false,
       arm: 0, armed: false, regrab: 0, armTouch: false };
   };
@@ -264,6 +274,7 @@ import * as pl from "planck";
 
   // player points in pixels
   Game.prototype.pt = function (p, lx, ly) { var w = p.body.getWorldPoint(Vec2(lx * S, ly * S)); return { x: w.x / S, y: w.y / S }; };
+  Game.prototype.headPoint = function (p) { var q = p.head.getPosition(); return { x: q.x / S, y: q.y / S }; };
   Game.prototype.feet = function (p) { var q = p.body.getPosition(); return { x: q.x / S, y: q.y / S }; };
   Game.prototype.top = function (p) { return this.pt(p, 0, -(p.h - 2)); };
   Game.prototype.shoulder = function (p) { return this.pt(p, -p.facing * 3, -(p.h - 5)); };
@@ -425,8 +436,12 @@ import * as pl from "planck";
         else if (f.x < t.x) p.angular -= ANGULAR_SUB * dt * 60;
       }
 
-      // controls
-      var key = playing && (this.pkeys ? !!this.pkeys[i] : this.keys[p.team]);
+      // controls (a frozen player cannot press; boosts change jump power, arm speed, and arm length)
+      var fx = p.fx, frozen = fx.freeze > 0;
+      var key = playing && !frozen && (this.pkeys ? !!this.pkeys[i] : this.keys[p.team]);
+      var jumpPower = JUMP_V0 * (fx.jump > 0 ? JUMP_BOOST : 1) * (fx.slow > 0 ? SLOW_JUMP : 1);
+      var armSpeed = ARM_SPEED * (fx.speed > 0 ? SPEED_ARM : 1) * (fx.slow > 0 ? SLOW_ARM : 1);
+      p.reach = p.baseReach * (fx.arms > 0 ? ARMS_REACH : 1);
       if (p.wait > 0) p.wait -= dt;
       if (p.regrab > 0) p.regrab -= dt;
       if (key && !p.prevKey && this.holder === i && !p.armed) p.armed = true;
@@ -437,7 +452,8 @@ import * as pl from "planck";
           p.angular = 0; p.jump = true; p.wait = 0.3;
           if (ground) {
             var ax = t.x - f.x, ay = t.y - f.y, al = Math.sqrt(ax * ax + ay * ay) || 1;
-            p.body.setLinearVelocity(Vec2(ax / al * JUMP_V0 * S, ay / al * JUMP_V0 * S));
+            var side = fx.speed > 0 ? SPEED_SIDEWAYS : 1;
+            p.body.setLinearVelocity(Vec2(ax / al * jumpPower * side * S, ay / al * jumpPower * S));
             p.body.setAngularVelocity(0);
             this.events.push('jump');
           }
@@ -451,11 +467,11 @@ import * as pl from "planck";
           p.body.setLinearVelocity(Vec2(v.x + bx / bl * k2 * S, v.y + by / bl * k2 * S));
           p.moreJump += MORE_JUMP_RATE * dt;
         }
-        p.arm = Math.min(ARM_MAX, p.arm + ARM_SPEED * ts);
+        p.arm = Math.min(ARM_MAX, p.arm + armSpeed * ts);
       } else {
         p.upArrow = false;
-        p.arm = p.arm > 1 ? Math.max(0, p.arm - ARM_SPEED * ts) : 0;
-        if (p.prevKey && p.armed && this.holder === i) this.throwBall(p);
+        p.arm = p.arm > 1 ? Math.max(0, p.arm - armSpeed * ts) : 0;
+        if (p.prevKey && p.armed && this.holder === i && !frozen) this.throwBall(p);
       }
       p.prevKey = key;
     }
@@ -506,6 +522,7 @@ import * as pl from "planck";
     }
 
     this.world.step(dt, 8, 3);
+    stepBoosts(this, DT);
 
     if (this.holder >= 0) {
       var hp2 = this.hand(this.players[this.holder]);
@@ -590,7 +607,9 @@ import * as pl from "planck";
   Game.prototype.saveState = function () {
     var st = { round: this.round, cfg: this.cfg, teams: this.teams, score: this.score.slice(), hoopOff: this.hoopOff.slice(), hoopShrink: this.hoopShrink.slice(),
       keys: this.keys.slice(), pkeys: this.pkeys ? this.pkeys.slice() : null, fakeScore: this.fakeScore ? this.fakeScore.slice() : null,
-      cheat: this.cheat ? JSON.parse(JSON.stringify(this.cheat)) : null };
+      cheat: this.cheat ? JSON.parse(JSON.stringify(this.cheat)) : null,
+      boostsOn: this.boostsOn, nextBoost: q(this.nextBoost), items: JSON.parse(JSON.stringify(this.items)),
+      fx: this.players.map(function (p) { return BOOST_KINDS.map(function (k) { return q(p.fx[k]); }); }) };
     for (var i = 0; i < SCALARS.length; i++) st[SCALARS[i]] = typeof this[SCALARS[i]] === 'number' ? q(this[SCALARS[i]]) : this[SCALARS[i]];
     st.tick = this.tick; st.seed = this.seed;
     st.ball = saveBody(this.ball).concat([this.ball.isActive() ? 1 : 0]);
@@ -612,6 +631,10 @@ import * as pl from "planck";
     this.pkeys = st.pkeys ? st.pkeys.slice() : null;
     this.fakeScore = st.fakeScore ? st.fakeScore.slice() : null;
     this.cheat = st.cheat ? JSON.parse(JSON.stringify(st.cheat)) : null;
+    this.boostsOn = !!st.boostsOn;
+    if (st.items) { this.items = JSON.parse(JSON.stringify(st.items)); this.nextBoost = st.nextBoost; }
+    var self = this;
+    if (st.fx) st.fx.forEach(function (arr, k) { BOOST_KINDS.forEach(function (kind, j) { self.players[k].fx[kind] = arr[j]; }); });
     loadBody(this.ball, st.ball);
     this.ball.setActive(!!st.ball[6]);
     for (var k = 0; k < this.players.length; k++) {

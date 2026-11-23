@@ -47,6 +47,14 @@
     (`createCheatUnlock` in `combos.js`, started in `startLocal` / `peer-joined` / `joined`, reset in `toMenu`).
     It is a client-side rule only; the server does not check it.
   - Each team's score box is on its own side (team 0 left, team 1 right).
+  - Boosts (power-ups): rules in `frontend/src/game/boosts.js` (+ `boosts.test.js`): kinds, spawn timing (one every
+    5-10 s, at most 2 on court, 10 s life), pickup by touch, effect timers in `player.fx`. `sim.js` applies them
+    (jump power, sideways jump, arm speed, arm length, freeze = no button) and saves them in `saveState`, so online
+    and the bot see them. Drawing: `drawItems`, `fxIcons`, `iceBlock`, sparks and rising names in `render.js`;
+    pickup events are `boost:<kind>:<player>:<x>:<y>`. Turned on per game with `new Sim.Game({ boosts })`; the
+    setting is the menu BOOSTS button / online-panel checkbox (`boostsOn` in `game.js`, saved in localStorage).
+  - Big balls: `hoopBonus` on a ball widens the hoop opening for that round (beach ball +6 px; it was 13 px wide in a
+    13.5 px gap and almost never went in).
   - Online rooms: `backend/game/rooms.py` (in-memory rooms) and `backend/game/routes.py` (public websocket
     `/ws/game`, no login). Tests: `backend/tests/test_game.py`.
   - Party rooms (2-8 players, uneven teams allowed): the server keeps a player id per guest (`create-party`, `join`

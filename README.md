@@ -19,6 +19,16 @@ After every point the court, the ball, the players, and the hoop change at rando
   If it does not work, the game still plays through the server. Either way, a guest's own player reacts at once:
   the guest's browser runs the game too and corrects it from the host.
 
+**Boosts** (power-ups): turn them on with the **BOOSTS** button in the menu, or the "Boosts" box in the online
+panel for rooms you create. Then every 5-10 seconds a boost floats onto the court (never more than two at a time;
+each waits 10 seconds). The player who touches it gets it:
+
+- gold ring (good): **BIG JUMP** (jump higher), **SPEED** (jump farther, faster arm), **LONG ARMS** (catch and steal
+  more easily) — 8 seconds;
+- red ring (bad): **SLOW** (weak jump, slow arm) for 6 seconds, **FREEZE** (stuck in ice, no button) for 2.5 seconds.
+
+Icons over a player's head show the boosts they have right now.
+
 Hold the button: your players jump and raise an arm. Let go to shoot. The higher the arm, the stronger the throw.
 Esc or the pause button goes back to the menu. M turns the sound on and off.
 Each team's score is shown in the bottom corner on its own side.

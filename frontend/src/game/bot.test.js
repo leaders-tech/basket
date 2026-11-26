@@ -20,8 +20,13 @@ function stepWith(game, humanKey, botKeys) {
 
 describe("strong computer player", () => {
   it("beats the simple bot", () => {
+    // Fixed random numbers, so the same games are played every time (random games made this test fail now and then).
+    let seed = 2024;
+    const realRandom = Math.random;
+    Math.random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     let smartPoints = 0, simplePoints = 0;
-    for (let m = 0; m < 2; m++) {
+    try {
+    for (let m = 0; m < 3; m++) {
       const game = new Sim.Game();
       const simple = new Sim.Bot(0, 1), smart = createSmartBot(1);
       for (let t = 0; t < 60 * 120 && game.state !== "over"; t++) {
@@ -30,6 +35,9 @@ describe("strong computer player", () => {
       }
       smartPoints += game.score[1];
       simplePoints += game.score[0];
+    }
+    } finally {
+      Math.random = realRandom;
     }
     expect(smartPoints).toBeGreaterThan(simplePoints * 2);
   }, 60000);

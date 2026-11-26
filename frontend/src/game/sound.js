@@ -70,6 +70,7 @@ export function createSound() {
       case 'click': tone(880, 1200, 0.05, 'square', 0.05); break;
       case 'uwu': clip('uwu'); break;
       case 'stop': tone(520, 160, 0.18, 'triangle', 0.12); break;
+      case 'steady': tone(330, 990, 0.16, 'triangle', 0.1); tone(660, 1320, 0.12, 'square', 0.03, 0.05); break;
       case 'boost-good': [660, 880, 1175, 1568].forEach(function (f, i) { tone(f, f * 1.02, 0.07, 'square', 0.05, i * 0.05); }); break;
       case 'boost-bad': [523, 392, 294, 196].forEach(function (f, i) { tone(f, f * 0.98, 0.08, 'triangle', 0.09, i * 0.06); }); break;
       case 'uwu-chaos': clip('uwu', 0.6 + Math.random() * 1.2); break;   // chaos: uwu again and again, at random pitch

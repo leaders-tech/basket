@@ -41,7 +41,9 @@
     players (online each side sends `{t: 'u'}` to the other), Z + W starts 8 seconds of chaos (`Game.startChaos`
     in `sim.js`, crowd and spinning in `Renderer.chaosCrowd` / `draw` in `render.js`; the guest sends `{t: 'x'}`,
     snapshots carry `x: [seconds, seed]`), Z + S stops a flying ball so it falls straight down (`Game.stopBall`;
-    the guest sends `{t: 'd'}`). During chaos `Game.shownScore()` returns random numbers; the real
+    the guest sends `{t: 'd'}`), Z + T stands players up straight (`Game.stabilize(team, only)` and the `steady`
+    timer in `step()`; online only the presser: duo guest -> team 1, party -> just that player; the guest sends
+    `{t: 'g'}`). During chaos `Game.shownScore()` returns random numbers; the real
     `game.score` is not changed.
   - All combos are locked until the player presses 1 four times in the first 5 seconds of a match
     (`createCheatUnlock` in `combos.js`, started in `startLocal` / `peer-joined` / `joined`, reset in `toMenu`).

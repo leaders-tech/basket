@@ -128,6 +128,32 @@ describe("game rules", () => {
     expect(Math.abs(dy[3])).toBeLessThan(0.05);
   });
 
+  it("stand-up combo turns that team's players upright within half a second, and only that team", () => {
+    const game = new Sim.Game();
+    for (let i = 0; i < 30; i++) game.step();
+    const tip = () => game.players.forEach((p) => { p.body.setTransform(p.body.getPosition(), 1.4); p.body.setAngularVelocity(4); });
+    const tilt = (p) => Math.abs(Math.atan2(Math.sin(p.body.getAngle()), Math.cos(p.body.getAngle())));
+    tip();
+    expect(game.stabilize(1)).toBe(true);
+    expect(game.takeEvents().filter((e) => e.startsWith("steady:"))).toHaveLength(2);
+    for (let i = 0; i < 30; i++) game.step();
+    for (const p of game.players.filter((q) => q.team === 1)) {
+      expect(tilt(p)).toBeLessThan(0.02);
+      // the head is right above the feet
+      expect(Math.abs(game.headPoint(p).x - game.feet(p).x)).toBeLessThan(1);
+    }
+    expect(Math.max(...game.players.filter((q) => q.team === 0).map(tilt))).toBeGreaterThan(0.2);
+  });
+
+  it("stand-up combo can stand up just one player (party rooms: only the one who pressed)", () => {
+    const game = new Sim.Game({ teams: [0, 1, 1, 1] });
+    for (let i = 0; i < 30; i++) game.step();
+    game.players.forEach((p) => { p.body.setTransform(p.body.getPosition(), 1.4); p.body.setAngularVelocity(4); });
+    game.stabilize(1, 2);
+    expect(game.takeEvents().filter((e) => e.startsWith("steady:"))).toEqual([expect.stringMatching(/^steady:2:/)]);
+    expect(game.players.map((p) => p.steady > 0)).toEqual([false, false, true, false]);
+  });
+
   it("stop-ball combo stops a flying ball and it falls straight down, whoever threw it", () => {
     for (const thrower of [0, 2]) {
       const game = new Sim.Game();

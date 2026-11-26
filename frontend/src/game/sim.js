@@ -265,7 +265,7 @@ import { ARMS_REACH, JUMP_BOOST, KINDS as BOOST_KINDS, SLOW_ARM, SLOW_JUMP, SPEE
     world.createJoint(pl.RevoluteJoint({ enableLimit: true, lowerAngle: -10 * Math.PI / 180, upperAngle: 10 * Math.PI / 180 }, body, head, P(x, GROUND - h + 3)));
     return { idx: idx, team: team, facing: facing, body: body, head: head, h: h, reach: ch.arm, baseReach: ch.arm, fx: newFx(),
       angular: 0, jump: false, moreJump: 0, wait: 0, upArrow: false, onGround: true, prevKey: false,
-      arm: 0, armed: false, regrab: 0, armTouch: false };
+      arm: 0, armed: false, regrab: 0, armTouch: false, steady: 0 };
   };
 
   function deg(a) { return a * 180 / Math.PI; }
@@ -343,6 +343,22 @@ import { ARMS_REACH, JUMP_BOOST, KINDS as BOOST_KINDS, SLOW_ARM, SLOW_JUMP, SPEE
   };
 
   // Stop-ball combo (keys Z + S): a flying ball stops in the air and falls straight down, whoever threw it.
+  // Stand-up combo (keys Z + T): the team's players (or only player `only`, if given) turn upright around their feet
+  // within a fraction of a second and stop wobbling (see the "steady" part of step()).
+  var STEADY_TIME = 0.4;
+  Game.prototype.stabilize = function (team, only) {
+    if (this.state === 'over') return false;
+    var self = this;
+    this.players.forEach(function (p) {
+      if (p.team !== team || (only !== undefined && p.idx !== only)) return;
+      p.steady = STEADY_TIME;
+      var c = self.pt(p, 0, -p.h / 2);
+      self.events.push('steady:' + p.idx + ':' + Math.round(c.x) + ':' + Math.round(c.y));
+    });
+    return true;
+  };
+  function normRad(a) { a = a % (2 * Math.PI); if (a > Math.PI) a -= 2 * Math.PI; if (a < -Math.PI) a += 2 * Math.PI; return a; }
+
   Game.prototype.stopBall = function () {
     if (this.state === 'over' || this.holder >= 0 || this.magnet >= 0) return false;
     this.cheat = null;                      // also stops a cheat shot in flight
@@ -434,6 +450,18 @@ import { ARMS_REACH, JUMP_BOOST, KINDS as BOOST_KINDS, SLOW_ARM, SLOW_JUMP, SPEE
         if (Math.abs(ang) <= 10) p.angular = lerp(p.angular, 0, dt / DIVIDE_SMOOTH);
         else if (f.x > t.x) p.angular += ANGULAR_SUB * dt * 60;
         else if (f.x < t.x) p.angular -= ANGULAR_SUB * dt * 60;
+      }
+
+      // stand-up combo: each tick turn the body 40% of the way to upright, around the feet, and put the head on top
+      if (p.steady > 0) {
+        p.steady = Math.max(0, p.steady - DT);
+        var up = normRad(p.body.getAngle()) * 0.6, pos = p.body.getPosition(), neck = (p.h + 2.5) * S;
+        p.body.setTransform(pos, up);
+        p.body.setAngularVelocity(0);
+        p.angular = 0;
+        p.head.setTransform(Vec2(pos.x + Math.sin(up) * neck, pos.y - Math.cos(up) * neck), up);
+        p.head.setLinearVelocity(p.body.getLinearVelocity());
+        p.head.setAngularVelocity(0);
       }
 
       // controls (a frozen player cannot press; boosts change jump power, arm speed, and arm length)
@@ -603,7 +631,7 @@ import { ARMS_REACH, JUMP_BOOST, KINDS as BOOST_KINDS, SLOW_ARM, SLOW_JUMP, SPEE
   }
   var SCALARS = ['tick', 'seed', 'state', 'timer', 'lastScorer', 'roundTime', 'slow', 'chaos', 'chaosTime', 'chaosSeed',
     'chaosKick', 'chaosUwu', 'holder', 'magnet', 'idle', 'prevBallY'];
-  var PLAYER_FIELDS = ['angular', 'jump', 'moreJump', 'wait', 'upArrow', 'onGround', 'prevKey', 'arm', 'armed', 'regrab', 'armTouch'];
+  var PLAYER_FIELDS = ['angular', 'jump', 'moreJump', 'wait', 'upArrow', 'onGround', 'prevKey', 'arm', 'armed', 'regrab', 'armTouch', 'steady'];
   Game.prototype.saveState = function () {
     var st = { round: this.round, cfg: this.cfg, teams: this.teams, score: this.score.slice(), hoopOff: this.hoopOff.slice(), hoopShrink: this.hoopShrink.slice(),
       keys: this.keys.slice(), pkeys: this.pkeys ? this.pkeys.slice() : null, fakeScore: this.fakeScore ? this.fakeScore.slice() : null,

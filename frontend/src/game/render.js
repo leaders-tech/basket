@@ -299,6 +299,15 @@ import { BOOSTS, LIFE as BOOST_LIFE } from "./boosts.js";
   };
   Renderer.prototype.onEvent = function (e, v) {
     if (e === 'score' && v) { this.net[v.bodies[v.L.teams.length * 7] > 145 ? 1 : 0] = 0.4; this.flash = 0.25; this.shake = 0.2; }
+    if (e.indexOf('steady:') === 0) {
+      // "steady:<player>:<x>:<y>": white and gold sparks rise around the player who stands up
+      var sp2 = e.split(':'), sx = +sp2[2], sy = +sp2[3];
+      for (var j = 0; j < 10; j++) {
+        this.sparks.push({ x: sx + (Math.random() - 0.5) * 12, y: sy + (Math.random() - 0.5) * 20, vx: (Math.random() - 0.5) * 20,
+          vy: -30 - Math.random() * 30, t: 0, life: 0.4 + Math.random() * 0.2, c: j % 2 ? '#ffffff' : '#ffe7a3' });
+      }
+      return;
+    }
     if (e.indexOf('boost:') === 0) {
       // "boost:<kind>:<player>:<x>:<y>": a burst of sparks where it was, and its name rising over the player
       var parts = e.split(':'), B = BOOSTS[parts[1]];

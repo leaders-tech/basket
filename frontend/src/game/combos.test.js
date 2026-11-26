@@ -63,6 +63,14 @@ describe("cheat unlock", () => {
   });
 });
 
+describe("stand-up combo", () => {
+  it("fires when Z and T are both down", () => {
+    expect(comboFor({ KeyT: true }, "KeyT")).toBeNull();
+    expect(comboFor({ KeyZ: true, KeyT: true }, "KeyT")).toBe("steady");
+    expect(comboFor({ KeyT: true, KeyZ: true }, "KeyZ")).toBe("steady");
+  });
+});
+
 describe("stop-ball combo", () => {
   it("fires when Z and S are both down", () => {
     expect(comboFor({ KeyS: true }, "KeyS")).toBeNull();

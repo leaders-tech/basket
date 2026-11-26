@@ -343,6 +343,12 @@ export function startGame() {
       case 'd':
         if (mode === 'host') game.stopBall();   // a guest pressed Z + S
         break;
+      case 'g':
+        if (mode === 'host' && party) {   // a guest pressed Z + T: only their own player
+          var gi = party.ids.indexOf(m.from);
+          if (gi >= 0) game.stabilize(game.teams[gi], gi);
+        } else if (mode === 'host') game.stabilize(1);
+        break;
       case 'rtc':
         if (party && party.host) { if (peers[m.from]) peers[m.from].signal(m.d); }
         else if (mode === 'host') { if (peers.duo) peers.duo.signal(m.d); }
@@ -388,7 +394,7 @@ export function startGame() {
     if (COMBO_KEYS[e.code]) {
       held[e.code] = true;
       var action = cheats.isUnlocked() ? comboFor(held, e.code) : null;
-      if (action === 'cheat') cheat(); else if (action === 'uwu') uwu(true); else if (action === 'chaos') chaos(); else if (action === 'stop') stopBall();
+      if (action === 'cheat') cheat(); else if (action === 'uwu') uwu(true); else if (action === 'chaos') chaos(); else if (action === 'stop') stopBall(); else if (action === 'steady') steady();
       if (!ANY[e.code]) return;   // W is also the jump button, so it goes on to the controls below
     }
     if (mode === 'menu') { if (e.code === 'Enter' || e.code === 'Space') { startLocal('cpu'); } return; }
@@ -412,6 +418,15 @@ export function startGame() {
   function chaos() {
     if (mode === 'menu' || mode === 'cpu' || mode === 'local' || mode === 'host') game.startChaos();
     else if (mode === 'guest') send({ t: 'x' });
+  }
+  // Z + T: your players stand up straight. With two players on one keyboard we cannot tell who pressed, so both teams.
+  // Online only the one who pressed: in a party room just your own player, in a 1 vs 1 room your two players.
+  function steady() {
+    if (mode === 'cpu') game.stabilize(0);
+    else if (mode === 'local') { game.stabilize(0); game.stabilize(1); }
+    else if (mode === 'host' && party) game.stabilize(game.teams[party.myIdx], party.myIdx);
+    else if (mode === 'host') game.stabilize(0);
+    else if (mode === 'guest') sendToHost({ t: 'g' });
   }
   // Z + S: the flying ball stops in the air and falls straight down (the host runs it, so the guest asks the host).
   function stopBall() {
@@ -460,6 +475,7 @@ export function startGame() {
   function handleEvent(e) {
     var quiet = mode === 'menu' || mode === 'lobby';   // the menu demo is quiet, except for chaos
     if (e.indexOf('boost:') === 0) { if (!quiet) Sfx.play(BOOSTS[e.split(':')[1]].good ? 'boost-good' : 'boost-bad'); }
+    else if (e.indexOf('steady:') === 0) { if (!quiet) Sfx.play('steady'); }
     else if (!quiet || e === 'uwu-chaos') Sfx.play(e);
     if (currentView) R.onEvent(e, currentView);
   }
